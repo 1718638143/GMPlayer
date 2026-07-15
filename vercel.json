@@ -1,19 +1,19 @@
 {
   "rewrites": [
     {
-      "source": "/api/ncm/:path*",
-      "destination": "https://ncm-api.prod.gbclstudio.cn/:path*"
+      "source": "/api/ncm/(.*)",
+      "destination": "https://ncm-api.prod.gbclstudio.cn/$1"
     },
     {
-      "source": "/api/la/:path*",
-      "destination": "https://lyric-atlas-api.vercel.app/:path*"
+      "source": "/api/la/(.*)",
+      "destination": "https://lyric-atlas-api.vercel.app/$1"
     },
     {
-      "source": "/api/unm/:path*",
-      "destination": "https://unm-api.prod.gbclstudio.cn/:path*"
+      "source": "/api/unm/(.*)",
+      "destination": "https://unm-api.prod.gbclstudio.cn/$1"
     },
     {
-      "source": "/:path*",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
