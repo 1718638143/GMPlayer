@@ -1,31 +1,9 @@
 {
   "rewrites": [
-    {
-      "source": "/api/ncm/:splat*",
-      "destination": "https://ncm-api.prod.gbclstudio.cn/:splat*"
-    },
-    {
-      "source": "/api/la/:splat*",
-      "destination": "https://lyric-atlas-api.vercel.app/:splat*"
-    },
-    {
-      "source": "/api/unm/:splat*",
-      "destination": "https://unm-api.prod.gbclstudio.cn/:splat*"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
-      ]
-    }
+    { "source": "/:path", "destination": "/index.html" },
+    { "source": "/api/ncm/:path*", "destination": "https://ncm-api.prod.gbclstudio.cn/:path*" },
+    { "source": "/api/la/:path*", "destination": "https://lyric-atlas-api.vercel.app/:path*" },
+    { "source": "/api/unm/:path*", "destination": "https://unm-api.prod.gbclstudio.cn/:path*" }
   ],
   "installCommand": "rustup target add wasm32-unknown-unknown && pnpm install:with-deps",
   "buildCommand": "pnpm build"
