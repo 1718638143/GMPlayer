@@ -45,6 +45,7 @@ import {
 import { nextTick } from "vue";
 import { settingStore } from "@/store";
 import { useDspSettings } from "@/composables/useDspSettings";
+import { isMobileDevice, isTauri, windowManager } from "@/utils/tauri";
 import themeColorData from "./themeColor.json";
 
 const setting = settingStore();
@@ -65,6 +66,23 @@ const theme = ref(null);
 const themeColorMeta = document.querySelector('meta[name="theme-color"]');
 let themeReady = false;
 let skipNextThemeWatch = false;
+let initializingTheme = true;
+const usesDesktopTauriShell = isTauri() && !isMobileDevice();
+let nativeThemeSyncToken = 0;
+
+const syncNativeWindowTheme = async () => {
+  if (!usesDesktopTauriShell) return;
+
+  const token = ++nativeThemeSyncToken;
+  const dark = setting.getSiteTheme === "dark";
+  await nextTick();
+  if (token !== nativeThemeSyncToken) return;
+  try {
+    await windowManager.setMainWindowEffectTheme(dark);
+  } catch (error) {
+    console.error("[WindowEffect] Failed to apply the native main-window theme", error);
+  }
+};
 
 const prefersReducedMotion = () =>
   window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
@@ -73,6 +91,7 @@ const runThemeTransition = (apply, targetTheme = setting.getSiteTheme) => {
   if (!themeReady || prefersReducedMotion()) {
     apply();
     themeReady = true;
+    void syncNativeWindowTheme();
     return;
   }
 
@@ -92,10 +111,17 @@ const runThemeTransition = (apply, targetTheme = setting.getSiteTheme) => {
       Math.max(safeX, window.innerWidth - safeX),
       Math.max(safeY, window.innerHeight - safeY),
     );
+    const currentShellColor = getComputedStyle(root).getPropertyValue("--app-shell-bg").trim();
+    const nextShellColor = targetTheme === "dark" ? "#121216" : "#f2f2f4";
 
     root.style.setProperty("--theme-transition-x", `${safeX}px`);
     root.style.setProperty("--theme-transition-y", `${safeY}px`);
     root.style.setProperty("--theme-transition-radius", `${radius}px`);
+    root.style.setProperty(
+      "--theme-transition-old-bg",
+      currentShellColor || (targetTheme === "dark" ? "#f2f2f4" : "#121216"),
+    );
+    root.style.setProperty("--theme-transition-new-bg", nextShellColor);
     delete root.dataset.themeTransitionOrigin;
     root.classList.add("theme-view-transition");
     root.classList.add(
@@ -106,12 +132,18 @@ const runThemeTransition = (apply, targetTheme = setting.getSiteTheme) => {
       apply();
       await nextTick();
     });
+    // The native material is not part of the WebView snapshot. Update it in
+    // parallel once the main-frame snapshots are ready so Rust never blocks
+    // the transition callback and the sidebar never participates in the mask.
+    void transition.ready.then(syncNativeWindowTheme, syncNativeWindowTheme);
     transition.finished.finally(() => {
       root.classList.remove(
         "theme-view-transition",
         "theme-transition-to-dark",
         "theme-transition-to-light",
       );
+      root.style.removeProperty("--theme-transition-old-bg");
+      root.style.removeProperty("--theme-transition-new-bg");
     });
     return;
   }
@@ -119,6 +151,7 @@ const runThemeTransition = (apply, targetTheme = setting.getSiteTheme) => {
   root.classList.add("theme-transitioning");
   requestAnimationFrame(() => {
     apply();
+    void syncNativeWindowTheme();
     window.setTimeout(() => {
       root.classList.remove("theme-transitioning");
     }, 260);
@@ -258,6 +291,10 @@ const NaiveProviderContent = defineComponent({
 watch(
   () => setting.getSiteTheme,
   () => {
+    if (initializingTheme) {
+      skipNextThemeWatch = false;
+      return;
+    }
     if (skipNextThemeWatch) {
       skipNextThemeWatch = false;
       return;
@@ -303,10 +340,17 @@ watch(
   (val) => changeThemeColor(val.label),
 );
 
-onMounted(() => {
-  applyThemeMode(setting.themeMode ?? (setting.themeAuto ? "system" : setting.theme));
-  changeTheme();
-  changeThemeColor(setting.themeType);
+onMounted(async () => {
+  try {
+    applyThemeMode(setting.themeMode ?? (setting.themeAuto ? "system" : setting.theme));
+    applyTheme();
+    await syncNativeWindowTheme();
+    themeReady = true;
+    changeThemeColor(setting.themeType);
+  } finally {
+    await nextTick();
+    initializingTheme = false;
+  }
 });
 
 onBeforeUnmount(() => {
@@ -349,6 +393,14 @@ onBeforeUnmount(() => {
   html.theme-view-transition::view-transition-new(root) {
     animation: none;
     mix-blend-mode: normal;
+  }
+
+  html.theme-view-transition::view-transition-old(root) {
+    background-color: var(--theme-transition-old-bg);
+  }
+
+  html.theme-view-transition::view-transition-new(root) {
+    background-color: var(--theme-transition-new-bg);
   }
 
   html.theme-transition-to-dark::view-transition-old(root) {

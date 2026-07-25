@@ -1,17 +1,17 @@
-use crate::desktop::window::config::WindowConfig;
+use crate::desktop::window::{config::WindowConfig, effects};
 use log::info;
-use tauri::window::EffectsBuilder;
-#[cfg(target_os = "windows")]
-use tauri::window::{Color, Effect};
-#[cfg(target_os = "macos")]
-use tauri::window::{Effect, EffectState};
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(target_os = "windows"))]
+use tauri::Theme;
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
-
 #[cfg(target_os = "macos")]
 use tauri_plugin_decorum::WebviewWindowExt;
+
+static MAIN_SHELL_EFFECT_INITIALIZED: AtomicBool = AtomicBool::new(false);
+static MAIN_SHELL_DARK: AtomicBool = AtomicBool::new(false);
 
 /// Create or focus a window from a `WindowConfig`.
 ///
@@ -36,6 +36,39 @@ pub fn create_window(app: &AppHandle, config: &WindowConfig) -> Result<(), Strin
 
     info!("Creating window '{}'", label);
 
+    if label == "main" {
+        MAIN_SHELL_EFFECT_INITIALIZED.store(false, Ordering::Release);
+        MAIN_SHELL_DARK.store(false, Ordering::Release);
+    }
+
+    let has_configured_effect = config.window_effect.is_some();
+    let defer_main_shell_effect =
+        label == "main" && config.window_effect.as_deref() == Some("system-shell");
+    let window_effects = if defer_main_shell_effect {
+        None
+    } else {
+        config.window_effect.as_deref().and_then(|effect_name| {
+            let color = if label == "tray-popup" {
+                tauri::window::Color(240, 240, 240, 200)
+            } else {
+                tauri::window::Color(30, 30, 30, 200)
+            };
+            effects::build_window_effects(effect_name, Some(color))
+        })
+    };
+
+    // Tauri's Windows effects documentation points to the window-vibrancy
+    // workaround: create an undecorated transparent window without its shadow,
+    // apply the effect, then restore the shadow so the native frame is rebuilt.
+    #[cfg(target_os = "windows")]
+    let initial_shadow = if has_configured_effect {
+        false
+    } else {
+        config.shadow
+    };
+    #[cfg(not(target_os = "windows"))]
+    let initial_shadow = config.shadow;
+
     let url = WebviewUrl::App(config.url.clone().into());
     let mut builder = WebviewWindowBuilder::new(app, label, url)
         .title(&config.title)
@@ -52,7 +85,7 @@ pub fn create_window(app: &AppHandle, config: &WindowConfig) -> Result<(), Strin
         .always_on_top(config.always_on_top)
         .skip_taskbar(config.skip_taskbar)
         .visible(config.visible)
-        .shadow(config.shadow);
+        .shadow(initial_shadow);
 
     if config.center {
         builder = builder.center();
@@ -97,15 +130,6 @@ pub fn create_window(app: &AppHandle, config: &WindowConfig) -> Result<(), Strin
     let _window = builder.build().map_err(|e| e.to_string())?;
     apply_runtime_size_constraints(&_window, config)?;
 
-    // Apply native window effects (acrylic, mica, etc.) if configured.
-    // Uses set_effects() on the built window because WebviewWindowBuilder
-    // does not reliably pass effects to the underlying WindowBuilder.
-    if let Some(ref effect_name) = config.window_effect {
-        if let Some(effects) = build_window_effects(effect_name) {
-            let _ = _window.set_effects(effects);
-        }
-    }
-
     // Apply decorum overlay titlebar (macOS only — Windows/Linux use DOM-based titlebar)
     #[cfg(target_os = "macos")]
     if config.use_overlay_titlebar {
@@ -127,7 +151,111 @@ pub fn create_window(app: &AppHandle, config: &WindowConfig) -> Result<(), Strin
         }
     }
 
+    if let Some(window_effects) = window_effects {
+        _window
+            .set_effects(window_effects)
+            .map_err(|e| e.to_string())?;
+
+        #[cfg(target_os = "windows")]
+        if config.shadow {
+            _window.set_shadow(true).map_err(|e| e.to_string())?;
+        }
+    }
+
     info!("Window '{}' created successfully", label);
+    Ok(())
+}
+
+/// Apply the app-selected native shell theme, then reveal the hidden main window.
+pub fn set_main_window_effect_theme(app: &AppHandle, dark: bool) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Window 'main' not found".to_string())?;
+    let initialize = !MAIN_SHELL_EFFECT_INITIALIZED.load(Ordering::Acquire);
+    MAIN_SHELL_DARK.store(dark, Ordering::Release);
+
+    // On Windows the Host Mica Alt helper sets DWM dark mode and tint directly. Avoid `set_theme`:
+    // Wry applies it through the shared WebView2 profile, which changes `prefers-color-scheme` in
+    // every slave window.
+    #[cfg(not(target_os = "windows"))]
+    window
+        .set_theme(Some(if dark { Theme::Dark } else { Theme::Light }))
+        .map_err(|e| e.to_string())?;
+
+    // Runtime theme changes do not need to block the command/frontend transition. Queue the
+    // native update on Tauri's UI thread and return immediately. Initial setup remains
+    // synchronous because the hidden window must not be revealed before its material exists.
+    #[cfg(target_os = "windows")]
+    if !initialize {
+        let update_window = window.clone();
+        window
+            .run_on_main_thread(move || {
+                if let Err(error) = effects::apply_system_shell_effect(&update_window, dark) {
+                    log::warn!("Failed to apply asynchronous main window material: {error}");
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    if initialize {
+        window.set_shadow(false).map_err(|e| e.to_string())?;
+    }
+
+    let effect_result = effects::apply_system_shell_effect(&window, dark);
+
+    #[cfg(target_os = "windows")]
+    let frame_result = if initialize {
+        window.set_shadow(true).map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    };
+
+    effect_result?;
+
+    #[cfg(target_os = "windows")]
+    frame_result?;
+
+    // Restoring the undecorated native shadow rebuilds the HWND frame and can clear an
+    // undocumented SWCA policy. Reapply the live material after the frame is final.
+    #[cfg(target_os = "windows")]
+    if initialize {
+        effects::apply_system_shell_effect(&window, dark)?;
+    }
+
+    if initialize {
+        MAIN_SHELL_EFFECT_INITIALIZED.store(true, Ordering::Release);
+
+        // Reveal on the UI thread and immediately force the first composition.
+        // The material (and on the SWCA fallback, the accent policy) was applied
+        // while the window was hidden; without a post-show nudge DWM can leave
+        // the transparent window uncomposed — invisible except for its taskbar
+        // button until a thumbnail hover forces a present.
+        #[cfg(target_os = "windows")]
+        {
+            let revealed = window.clone();
+            window
+                .run_on_main_thread(move || {
+                    if let Err(error) = revealed.show() {
+                        log::warn!("Failed to show main window: {error}");
+                        return;
+                    }
+                    let _ = revealed.set_focus();
+                    effects::force_first_present(&revealed, dark);
+                })
+                .map_err(|e| e.to_string())?;
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            window.show().map_err(|e| e.to_string())?;
+            window.set_focus().map_err(|e| e.to_string())?;
+        }
+
+        let _ = app.emit("main-window-visibility", true);
+    }
+
     Ok(())
 }
 
@@ -322,39 +450,6 @@ pub fn set_window_position(app: &AppHandle, label: &str, x: i32, y: i32) -> Resu
         .map_err(|e| e.to_string())
 }
 
-/// Build platform-specific window effects config from a named effect.
-fn build_window_effects(effect: &str) -> Option<tauri::utils::config::WindowEffectsConfig> {
-    build_window_effects_with_color(effect, 30, 30, 30, 200)
-}
-
-/// Build platform-specific window effects config with a custom tint color.
-fn build_window_effects_with_color(
-    effect: &str,
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
-) -> Option<tauri::utils::config::WindowEffectsConfig> {
-    match effect {
-        "acrylic" => {
-            let mut builder = EffectsBuilder::new();
-            #[cfg(target_os = "windows")]
-            {
-                builder = builder.effect(Effect::Acrylic).color(Color(r, g, b, a));
-            }
-            #[cfg(target_os = "macos")]
-            {
-                builder = builder
-                    .effect(Effect::HudWindow)
-                    .state(EffectState::Active)
-                    .radius(12.0);
-            }
-            Some(builder.build())
-        }
-        _ => None,
-    }
-}
-
 /// Update the tray popup's window effect tint color.
 pub fn set_window_effect_color(
     app: &AppHandle,
@@ -364,17 +459,5 @@ pub fn set_window_effect_color(
     b: u8,
     a: u8,
 ) -> Result<(), String> {
-    let window = app
-        .get_webview_window(label)
-        .ok_or_else(|| format!("Window '{}' not found", label))?;
-
-    // Look up the preset to find the effect name
-    if let Some(preset) = WindowConfig::from_label(label) {
-        if let Some(ref effect_name) = preset.window_effect {
-            if let Some(effects) = build_window_effects_with_color(effect_name, r, g, b, a) {
-                window.set_effects(effects).map_err(|e| e.to_string())?;
-            }
-        }
-    }
-    Ok(())
+    effects::set_effect_color(app, label, r, g, b, a)
 }

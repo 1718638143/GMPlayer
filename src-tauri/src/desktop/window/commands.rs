@@ -1,11 +1,12 @@
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{command, AppHandle, Manager};
-use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+use tauri_plugin_window_state::AppHandleExt;
 
 use crate::desktop::window::config::WindowConfig;
 use crate::desktop::window::manager;
 use crate::desktop::window::payload::PayloadCache;
+use crate::desktop::WINDOW_STATE_FLAGS;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,6 +139,12 @@ pub async fn set_window_effect_color(
     manager::set_window_effect_color(&app, &label, r, g, b, a)
 }
 
+/// Apply the persisted app light/dark theme to the main native shell and reveal it.
+#[command]
+pub async fn set_main_window_effect_theme(app: AppHandle, dark: bool) -> Result<(), String> {
+    manager::set_main_window_effect_theme(&app, dark)
+}
+
 /// Set whether a window ignores cursor events (click-through).
 #[command]
 pub async fn set_ignore_cursor_events(
@@ -164,12 +171,7 @@ pub async fn resize_window(
 /// hidden main window on next launch.
 #[command]
 pub async fn quit_app(app: AppHandle) -> Result<(), String> {
-    let flags = StateFlags::SIZE
-        | StateFlags::POSITION
-        | StateFlags::MAXIMIZED
-        | StateFlags::FULLSCREEN
-        | StateFlags::DECORATIONS;
-    let _ = app.save_window_state(flags);
+    let _ = app.save_window_state(WINDOW_STATE_FLAGS);
     app.exit(0);
     Ok(())
 }

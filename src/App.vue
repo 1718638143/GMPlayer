@@ -19,11 +19,16 @@
               'queue-open': showInlineQueue,
             },
           ]"
+          :theme-overrides="usesNativeWindowEffect ? transparentLayoutTheme : undefined"
           style="height: 100vh"
         >
           <div v-if="usesDesktopTauriChrome" class="nav-drag-layer" data-tauri-drag-region />
           <Nav :class="['app-nav-overlay', { 'tauri-nav': usesDesktopTauriChrome }]" />
           <div class="content-panel-frame" aria-hidden="true" />
+          <div
+            :class="['content-top-shadow', { dark: setting.getSiteTheme === 'dark' }]"
+            aria-hidden="true"
+          />
           <n-layout-content
             position="absolute"
             :class="[
@@ -47,7 +52,7 @@
                 />
                 <router-view v-slot="{ Component, route }">
                   <transition name="fade-scale" mode="out-in">
-                    <keep-alive :max="15">
+                    <keep-alive :max="10">
                       <component
                         :is="Component"
                         :key="
@@ -82,6 +87,7 @@ import { useI18n } from "vue-i18n";
 import {
   getDesktopEnvironment,
   isMobile,
+  isMobileDevice,
   isTauri,
   windowManager,
   type DesktopEnvironment,
@@ -109,16 +115,32 @@ const route = useRoute();
 const contentStage = ref<HTMLElement | null>(null);
 const mainContent = ref<HTMLElement | null>(null);
 const isInlineQueueLayout = ref(false);
+const isDesktopTauriRuntime = isTauri() && !isMobileDevice();
+const isNativeEffectPlatform = /Win|Mac/i.test(
+  window.navigator.platform || window.navigator.userAgent,
+);
 const desktopEnvironment = ref<DesktopEnvironment | null>(null);
-const usesDesktopTauriChrome = ref(false);
+const usesDesktopTauriChrome = ref(isDesktopTauriRuntime);
 let inlineQueueMediaQuery: MediaQueryList | null = null;
 
 const showInlineQueue = computed(() => isInlineQueueLayout.value && music.showPlayList);
 const hasPlayBar = computed(() => Boolean(music.getPlaylists[0] && music.showPlayBar));
+const usesNativeWindowEffect = computed(
+  () =>
+    usesDesktopTauriChrome.value &&
+    (desktopEnvironment.value?.isMacos ||
+      desktopEnvironment.value?.os === "windows" ||
+      isNativeEffectPlatform),
+);
+const transparentLayoutTheme = {
+  color: "transparent",
+  colorEmbedded: "transparent",
+};
 const appBodyClasses = computed(() => [
   "app-body",
   {
     "bigplayer-open": music.showBigPlayer,
+    "native-window-effect": usesNativeWindowEffect.value,
     "native-traffic-lights": desktopEnvironment.value?.usesNativeTrafficLights ?? false,
     "hyprland-shell": desktopEnvironment.value?.isHyprland ?? false,
     "linux-shell": desktopEnvironment.value?.isLinux ?? false,
@@ -133,6 +155,14 @@ const syncInlineQueueLayout = (event?: MediaQueryListEvent) => {
   isInlineQueueLayout.value = inlineQueueMediaQuery?.matches ?? false;
 };
 
+watch(
+  usesNativeWindowEffect,
+  (enabled) => {
+    document.documentElement.classList.toggle("native-window-effect-root", enabled);
+  },
+  { immediate: true },
+);
+
 // Standalone window detection (tray popup, etc.)
 const isStandaloneWindow = computed(() => !!route.meta.standalone);
 
@@ -145,7 +175,6 @@ const annDuration = Number(import.meta.env.VITE_ANN_DURATION);
 // 空格暂停与播放
 const spacePlayOrPause = (e) => {
   if (e.code === "Space") {
-    console.log(e.target.tagName);
     if (router.currentRoute.value.name === "video") return false;
     if (e.target.tagName === "BODY") {
       e.preventDefault();
@@ -235,6 +264,8 @@ const scrollToTop = () => {
 
 // Tauri: handle close behavior (hide-to-tray vs exit vs ask)
 const rememberClose = ref(false);
+let unlistenCloseRequested: (() => void) | null = null;
+let unlistenMainVisibility: (() => void) | null = null;
 const handleCloseRequested = () => {
   const behavior = setting.closeBehavior;
   if (behavior === "tray") {
@@ -377,21 +408,41 @@ onMounted(() => {
       .listen("main-close-requested", () => {
         handleCloseRequested();
       })
+      .then((unlisten) => {
+        unlistenCloseRequested = unlisten;
+      })
       .catch(() => {});
 
     // Suspend animations when main window is hidden (close-to-tray)
-    windowManager.onMainWindowVisibility((visible) => {
-      setPageVisible(visible);
-    });
+    windowManager
+      .onMainWindowVisibility((visible) => {
+        setPageVisible(visible);
+      })
+      .then((unlisten) => {
+        unlistenMainVisibility = unlisten;
+      })
+      .catch(() => {});
   }
 });
 
 onBeforeUnmount(() => {
   inlineQueueMediaQuery?.removeEventListener("change", syncInlineQueueLayout);
+  window.removeEventListener("keydown", spacePlayOrPause);
+  unlistenCloseRequested?.();
+  unlistenCloseRequested = null;
+  unlistenMainVisibility?.();
+  unlistenMainVisibility = null;
+  document.documentElement.classList.remove("native-window-effect-root");
 });
 </script>
 
 <style lang="scss" scoped>
+:global(html.native-window-effect-root),
+:global(html.native-window-effect-root body),
+:global(html.native-window-effect-root #app) {
+  background: transparent !important;
+}
+
 .main-content {
   transition:
     transform 0.3s,
@@ -415,7 +466,10 @@ onBeforeUnmount(() => {
   background-color: transparent !important;
   z-index: 1;
 
-  :deep(.n-scrollbar-rail--vertical) {
+  // Only offset the scrollbar owned by this layout content. A descendant selector
+  // also catches rails inside routed pages (for example Settings' virtual list),
+  // shifting those rails left by the queue width when the inline queue is open.
+  > :deep(.n-scrollbar > .n-scrollbar-rail--vertical) {
     right: var(--content-scrollbar-right) !important;
     // `.main` 设了 position:relative + z-index:2，与滚动条 thumb(Naive 内部 z-index:1)
     // 共享同一层叠上下文（.n-scrollbar / .n-scrollbar-container 均不成栈），
@@ -579,6 +633,60 @@ onBeforeUnmount(() => {
       padding-top: var(--app-native-traffic-light-reserve-y);
     }
   }
+
+  &.native-window-effect {
+    background: transparent;
+
+    .app-layout-wrapper {
+      background: transparent !important;
+    }
+
+    .app-layout {
+      background: transparent !important;
+    }
+
+    :deep(.sidebar) {
+      background: transparent;
+    }
+
+    :deep(.sidebar .sidebar-header),
+    :deep(.sidebar .sidebar-footer) {
+      background: transparent;
+    }
+
+    :deep(.sidebar .sidebar-header::after) {
+      background: linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--n-text-color) 10%, transparent),
+        transparent
+      );
+    }
+
+    :deep(.sidebar .sidebar-footer::before) {
+      background: linear-gradient(
+        to top,
+        color-mix(in srgb, var(--n-text-color) 10%, transparent),
+        transparent
+      );
+    }
+
+    :deep(.queue-panel) {
+      background: transparent;
+    }
+
+    :deep(.player) {
+      --player-surface-bg: transparent;
+      --player-surface-border: transparent;
+      background: transparent !important;
+      border-top-color: transparent;
+      box-shadow: none;
+    }
+
+    :deep(.player::before) {
+      background: transparent;
+      box-shadow: none;
+    }
+  }
 }
 
 .app-layout-wrapper {
@@ -660,7 +768,9 @@ onBeforeUnmount(() => {
 
 .content-panel-frame {
   position: absolute;
-  top: var(--content-stage-padding-top);
+  // The border is painted inward. Move the outer edge up by 1px so its inner
+  // edge aligns with the content clip instead of leaving content above the frame.
+  top: calc(var(--content-stage-padding-top) - 1px);
   right: var(--content-stage-padding-right);
   bottom: calc(var(--layout-content-bottom) + var(--content-stage-padding-y));
   left: var(--content-stage-padding-x);
@@ -709,14 +819,76 @@ onBeforeUnmount(() => {
   .app-layout.queue-open & {
     right: calc(var(--content-stage-padding-right) + var(--queue-column-width));
     border-radius: var(--radius-panel);
-
-    &::after {
-      opacity: 1;
-    }
   }
 
   @media (max-width: 768px) {
     display: none;
+  }
+}
+
+:global(html[data-theme="light"].native-window-effect-root) .content-panel-frame {
+  --content-panel-bg: rgba(248, 248, 250, 0.46);
+  --content-panel-gradient-overlay: rgba(255, 255, 255, 0.28);
+}
+
+:global(html[data-theme="dark"].native-window-effect-root) .content-panel-frame {
+  --content-panel-bg: rgba(24, 24, 28, 0.52);
+  --content-panel-gradient-overlay: rgba(24, 24, 28, 0.34);
+}
+
+.content-top-shadow {
+  --content-top-shadow-contact: rgba(0, 0, 0, 0.18);
+  --content-top-shadow-middle: rgba(0, 0, 0, 0.075);
+  --content-top-shadow-ambient: rgba(0, 0, 0, 0.025);
+  --content-top-shadow-highlight: rgba(255, 255, 255, 0.2);
+
+  display: none;
+  position: absolute;
+  top: calc(var(--content-stage-padding-top) - 1px);
+  right: calc(var(--content-stage-padding-right) + 1px);
+  left: calc(var(--content-stage-padding-x) + 1px);
+  z-index: 2;
+  height: 128px;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: calc(var(--radius-panel) - 1px) calc(var(--radius-panel) - 1px) 0 0;
+  background: linear-gradient(
+    to bottom,
+    var(--content-top-shadow-contact) 0,
+    var(--content-top-shadow-middle) 12%,
+    var(--content-top-shadow-ambient) 38%,
+    transparent 100%
+  );
+  box-shadow: inset 0 1px 0 var(--content-top-shadow-highlight);
+  transition:
+    right var(--duration-300) var(--ease-in-out),
+    opacity var(--duration-200) var(--ease-out);
+
+  &.dark {
+    --content-top-shadow-contact: rgba(0, 0, 0, 0.68);
+    --content-top-shadow-middle: rgba(0, 0, 0, 0.32);
+    --content-top-shadow-ambient: rgba(0, 0, 0, 0.1);
+    --content-top-shadow-highlight: rgba(255, 255, 255, 0.08);
+  }
+
+  .app-layout.queue-open & {
+    right: calc(var(--content-stage-padding-right) + var(--queue-column-width) + 1px);
+  }
+
+  @media (max-width: 768px) {
+    display: block;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: calc(144px + var(--app-safe-area-top, 0px));
+    border-radius: 0;
+    box-shadow: none;
+
+    &.dark {
+      --content-top-shadow-contact: rgba(0, 0, 0, 0.52);
+      --content-top-shadow-middle: rgba(0, 0, 0, 0.24);
+      --content-top-shadow-ambient: rgba(0, 0, 0, 0.08);
+    }
   }
 }
 
@@ -731,6 +903,12 @@ onBeforeUnmount(() => {
   height: var(--app-drag-region-height);
   z-index: 1500;
   pointer-events: auto;
+  // Keep the native drag region in lockstep with the animated sidebar.
+  // --sidebar-width changes immediately when the setting flips, while the
+  // Sidebar itself eases to its new width over 220ms.
+  transition:
+    left 0.22s ease-in-out,
+    right 0.22s ease-in-out;
 
   @media (max-width: 768px) {
     display: none;
@@ -745,6 +923,11 @@ onBeforeUnmount(() => {
   width: auto;
   z-index: 1600;
   pointer-events: none;
+  // The sidebar width custom property is discrete; animate dependent fixed
+  // offsets so the nav does not jump ahead of the sidebar's width tween.
+  transition:
+    left 0.22s ease-in-out,
+    right 0.22s ease-in-out;
 
   &.tauri-nav {
     right: calc(

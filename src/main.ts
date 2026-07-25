@@ -1,7 +1,7 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import { useI18n } from "@/locale";
-import { useMobileSafeAreaVars } from "./composables/useMobileSafeAreaVars";
+import { useSafeAreaVars } from "./composables/useSafeAreaVars";
 import piniaPluginPersistedstate from "pinia-plugin-persistedstate";
 
 import App from "@/App.vue";
@@ -20,7 +20,7 @@ const app = createApp(App).use(pinia).use(router);
 // 国际化
 useI18n(app);
 
-await useMobileSafeAreaVars();
+useSafeAreaVars();
 
 app.mount("#app");
 

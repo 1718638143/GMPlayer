@@ -17,13 +17,13 @@ use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_decorum::WebviewWindowExt;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
-/// State flags for window-state plugin — excludes VISIBLE so a previous
-/// hide-to-tray state is not restored as a hidden main window on launch.
-const WINDOW_STATE_FLAGS: StateFlags = StateFlags::SIZE
+/// Persist geometry only. Visibility is owned by close-to-tray behavior and
+/// decorations are owned by the Rust window preset; restoring either can
+/// overwrite the initial native backdrop/frame configuration on Windows.
+pub(crate) const WINDOW_STATE_FLAGS: StateFlags = StateFlags::SIZE
     .union(StateFlags::POSITION)
     .union(StateFlags::MAXIMIZED)
-    .union(StateFlags::FULLSCREEN)
-    .union(StateFlags::DECORATIONS);
+    .union(StateFlags::FULLSCREEN);
 
 pub fn run() {
     #[cfg(target_os = "linux")]
@@ -85,6 +85,7 @@ pub fn run() {
             window::commands::peek_window_payload,
             window::commands::show_window_at_position,
             window::commands::set_window_effect_color,
+            window::commands::set_main_window_effect_theme,
             window::commands::set_ignore_cursor_events,
             window::commands::resize_window,
             window::commands::quit_app,
@@ -120,9 +121,8 @@ pub fn run() {
             // `tauri.conf.json` intentionally has no static windows so desktop
             // and mobile entry points can own their platform-specific startup.
             let mut main_config = WindowConfig::main();
-            // Create hidden, restore saved geometry, then show. Otherwise
-            // users see the default window size for one frame before the
-            // window-state plugin applies the saved size/position.
+            // Create hidden and restore saved geometry before the frontend
+            // initializes the native shell and reveals the window.
             main_config.visible = false;
             if let Err(e) = wm::create_window(&app_handle, &main_config) {
                 warn!("Failed to create main window: {}", e);
@@ -149,12 +149,10 @@ pub fn run() {
             if let Err(e) = main_window.restore_state(WINDOW_STATE_FLAGS) {
                 warn!("Failed to restore main window state before show: {}", e);
             }
-            if let Err(e) = main_window.show() {
-                warn!("Failed to show main window after state restore: {}", e);
-            } else {
-                let _ = main_window.set_focus();
-                let _ = app_handle.emit("main-window-visibility", true);
-            }
+            // The frontend applies its persisted theme, initializes the matching
+            // native material, then reveals the window through
+            // `set_main_window_effect_theme`. Keeping it hidden here prevents a
+            // light system backdrop from flashing before a dark app theme loads.
 
             // Set up system tray
             let handle = app.handle().clone();
