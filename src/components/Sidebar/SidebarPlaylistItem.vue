@@ -44,18 +44,11 @@ defineEmits(["navigate"]);
   padding: 0;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition:
-    background-color 0.2s,
-    width 0.3s ease;
+  transition: background-color 0.2s;
   overflow: hidden;
   white-space: nowrap;
 
   &.collapsed {
-    width: var(--sidebar-item-slot, 40px);
-    min-width: var(--sidebar-item-slot, 40px);
-    max-width: var(--sidebar-item-slot, 40px);
-    min-height: 34px;
-    margin-inline: auto;
     grid-template-columns: var(--sidebar-item-slot, 40px) 0;
   }
 

@@ -41,10 +41,10 @@
           key="expanded-navigation"
           tag="div"
           class="sidebar-nav-layer"
-          :initial="{ opacity: 0, y: -8 }"
-          :animate="{ opacity: 1, y: 0 }"
-          :exit="{ opacity: 0, y: -8 }"
-          :transition="{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }"
+          :initial="{ opacity: 0 }"
+          :animate="{ opacity: 1 }"
+          :exit="{ opacity: 0 }"
+          :transition="{ duration: 0.22, ease: 'easeInOut' }"
         >
           <n-virtual-list
             class="sidebar-scroll sidebar-virtual expanded"
@@ -102,10 +102,10 @@
           key="collapsed-navigation"
           tag="div"
           class="sidebar-nav-layer collapsed"
-          :initial="{ opacity: 0, y: 8 }"
-          :animate="{ opacity: 1, y: 0 }"
-          :exit="{ opacity: 0, y: 8 }"
-          :transition="{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }"
+          :initial="{ opacity: 0 }"
+          :animate="{ opacity: 1 }"
+          :exit="{ opacity: 0 }"
+          :transition="{ duration: 0.22, ease: 'easeInOut' }"
         >
           <n-virtual-list
             class="sidebar-scroll sidebar-virtual collapsed"
@@ -177,7 +177,7 @@
             >
               <n-avatar
                 round
-                :size="setting.sidebarCollapsed ? 24 : 22"
+                :size="22"
                 :src="
                   user.getUserData.avatarUrl
                     ? user.getUserData.avatarUrl.replace(/^http:/, 'https:') + '?param=60y60'
@@ -623,13 +623,11 @@ const goToPlaylist = (id: number) => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--sidebar-control-size);
   align-items: center;
-  gap: 4px;
-  padding: 8px;
+  gap: 0;
+  padding: 8px 12px;
   min-height: 46px;
   background-color: var(--app-shell-bg, var(--layout-bg, #fff));
-  transition:
-    grid-template-columns 0.22s ease,
-    padding 0.22s ease;
+  transition: padding 0.22s ease-in-out;
 
   &::after {
     content: "";
@@ -646,18 +644,6 @@ const goToPlaylist = (id: number) => {
       rgba(var(--app-shell-rgb, 242, 242, 244), 0)
     );
     transition: opacity 0.18s ease;
-  }
-
-  &.collapsed {
-    grid-template-columns: var(--sidebar-item-slot);
-    justify-content: center;
-    padding: 8px;
-  }
-
-  &.collapsed {
-    .sidebar-search {
-      display: none;
-    }
   }
 }
 
@@ -807,6 +793,7 @@ const goToPlaylist = (id: number) => {
     width: 56px;
     min-width: 56px;
     max-width: 56px;
+    padding-inline: 8px;
     justify-content: center;
   }
 
@@ -941,7 +928,7 @@ const goToPlaylist = (id: number) => {
   padding: 7px 8px;
   border-top: 1px solid var(--sidebar-divider);
   background-color: var(--app-shell-bg, var(--layout-bg, #fff));
-  transition: padding 0.3s ease;
+  transition: padding 0.22s ease-in-out;
 
   &::before {
     content: "";
@@ -959,10 +946,6 @@ const goToPlaylist = (id: number) => {
     );
     transition: opacity 0.18s ease;
   }
-
-  &.collapsed {
-    padding: 8px;
-  }
 }
 
 .sidebar-user {
@@ -976,17 +959,12 @@ const goToPlaylist = (id: number) => {
   border-radius: var(--radius-md);
   background-color: var(--sidebar-hover-bg);
   cursor: pointer;
-  transition:
-    background-color 0.2s,
-    width 0.3s ease;
+  transition: background-color 0.2s;
   overflow: hidden;
   white-space: nowrap;
 
   &.collapsed {
-    width: var(--sidebar-item-slot);
-    min-height: 34px;
-    margin-inline: auto;
-    margin-top: 4px;
+    grid-template-columns: var(--sidebar-item-slot) 0;
   }
 
   :deep(.n-avatar) {

@@ -40,18 +40,12 @@ defineEmits(["navigate"]);
   color: var(--sidebar-text, var(--n-text-color));
   transition:
     background-color var(--duration-150) var(--ease-out),
-    color var(--duration-150) var(--ease-out),
-    width var(--duration-300) var(--ease-out);
+    color var(--duration-150) var(--ease-out);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
 
   &.collapsed {
-    width: var(--sidebar-item-slot, 40px);
-    min-width: var(--sidebar-item-slot, 40px);
-    max-width: var(--sidebar-item-slot, 40px);
-    min-height: 34px;
-    margin-inline: auto;
     grid-template-columns: var(--sidebar-item-slot, 40px) 0;
   }
 
