@@ -273,6 +273,18 @@ pub enum AudioThreadMessage {
         /// frozen frontend (Android background) never re-plays stale entries.
         #[serde(default)]
         windowed: bool,
+        /// When present, replace the queue and start this logical index as one
+        /// player-loop operation. This avoids racing a separate JumpToSong
+        /// command against the playlist replacement.
+        #[serde(default)]
+        play_index: Option<usize>,
+        /// Optional position used by the atomic `play_index` load.
+        #[serde(default)]
+        initial_position: Option<f64>,
+        /// Frontend load generation used to correlate lifecycle events with
+        /// the controller that initiated this atomic load.
+        #[serde(default)]
+        load_request_id: Option<u64>,
     },
     #[serde(rename_all = "camelCase")]
     SetVolume { volume: f64 },
@@ -338,11 +350,13 @@ pub enum AudioThreadEvent {
         music_info: DisplayAudioInfo,
         quality: AudioQuality,
         current_play_index: usize,
+        load_request_id: Option<u64>,
     },
     #[serde(rename_all = "camelCase")]
     LoadingAudio {
         music_id: String,
         current_play_index: usize,
+        load_request_id: Option<u64>,
     },
     #[serde(rename_all = "camelCase")]
     AudioPlayFinished { music_id: String },
@@ -379,7 +393,11 @@ pub enum AudioThreadEvent {
         error: String,
     },
     #[serde(rename_all = "camelCase")]
-    LoadError { error: String },
+    LoadError {
+        music_id: String,
+        load_request_id: Option<u64>,
+        error: String,
+    },
     #[serde(rename_all = "camelCase")]
     PlayError { error: String },
     #[serde(rename_all = "camelCase")]

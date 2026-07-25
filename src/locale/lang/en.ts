@@ -359,6 +359,7 @@ const messages: Record<string, unknown> = {
     queue: {
       nowPlaying: "Now Playing",
       playingNext: "Playing Next",
+      clear: "Clear",
     },
     loading: {
       resolving: "Fetching audio",

@@ -68,6 +68,7 @@ type LoadPromise = {
   resolve: () => void;
   reject: (err: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
+  requestId?: number;
 };
 
 type SyncPromise = {
@@ -131,6 +132,7 @@ export class NativeRustSound implements ISound {
 
   private _loaded: boolean = false;
   private _destroyed: boolean = false;
+  private _terminallyCleared: boolean = false;
   private _playbackState: "stopped" | "playing" | "paused" | "ended" = "stopped";
   private _pendingPlayCommand: boolean = false;
   private _optimisticPlayback: boolean = isTauri();
@@ -138,6 +140,7 @@ export class NativeRustSound implements ISound {
   private _nativeAutoMixSyncPending: boolean = false;
   private _allowInitialBackendAttach: boolean = false;
   private _backendTrackReady: boolean = false;
+  private _nextLoadRequestId: number = 0;
   private _nextSeekRequestId: number = 0;
   /** True once a queue window has been applied to the backend: track-end
    * transitions should then be attempted as backend-initiated advances (the
@@ -174,7 +177,7 @@ export class NativeRustSound implements ISound {
   // ═════════════════════════════════════════════════════════════╝
 
   async load(initialPosition?: number, options?: NativeLoadOptions): Promise<void> {
-    if (this._loaded || this._destroyed) return;
+    if (this._loaded || this._destroyed || this._terminallyCleared) return;
 
     if (!isAudioBackendRuntimeAvailable()) {
       this._emit("loaderror", new Error("Audio backend runtime not available"));
@@ -193,6 +196,7 @@ export class NativeRustSound implements ISound {
       this._emit("loaderror", err);
       return;
     }
+    if (this._destroyed || this._terminallyCleared) return;
 
     const initPos = this._normalizeSeekPosition(initialPosition ?? 0);
     this._backendTrackReady = false;
@@ -207,6 +211,7 @@ export class NativeRustSound implements ISound {
       this._allowInitialBackendAttach = true;
       await this.requestStatusSync(400);
       this._allowInitialBackendAttach = false;
+      if (this._destroyed || this._terminallyCleared) return;
       if (this._state.musicId && this._state.duration > 0) {
         if (initPos > 0 && Math.abs(this._state.position - initPos) > 1) {
           this.seek(initPos);
@@ -229,6 +234,7 @@ export class NativeRustSound implements ISound {
 
     // 2. Set up the load-completion promise BEFORE dispatching messages
     //    so events that arrive between dispatch and `await` are caught.
+    const loadRequestId = isTauri() ? this._newLoadRequestId() : undefined;
     const loadDone = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
         if (this._pendingLoad) {
@@ -236,12 +242,13 @@ export class NativeRustSound implements ISound {
           reject(new Error(`Native audio load timeout after ${LOAD_TIMEOUT_MS}ms`));
         }
       }, LOAD_TIMEOUT_MS);
-      this._pendingLoad = { resolve, reject, timeout };
+      this._pendingLoad = { resolve, reject, timeout, requestId: loadRequestId };
     });
 
-    // 3. Dispatch setPlaylist + jumpToSong / jumpToSongAt over the invoke
-    //    control path. Load completion is driven by LoadAudio / LoadError
-    //    events, not by invoke acks.
+    // 3. Tauri uses one atomic setPlaylist+play command so queue replacement
+    //    cannot race the following jump. WASM keeps its local two-step path.
+    //    Load completion is driven by LoadAudio / LoadError events, not by
+    //    invoke acks.
     //
     //    `jumpToSongAt` bundles the initial-position seek into the load,
     //    avoiding a separate `seekAudio` round-trip. The Rust side opens
@@ -257,11 +264,22 @@ export class NativeRustSound implements ISound {
       // `windowed: true` — a bare single-entry queue must stop at track end
       // instead of wrap-replaying itself; the real advance window arrives via
       // `applyNativeQueueWindow` once playback starts.
-      this._sendCommand({ type: "setPlaylist", songs: [song], windowed: true });
-      if (initPos > 0) {
-        this._sendCommand({ type: "jumpToSongAt", songIndex: 0, position: initPos });
+      if (loadRequestId !== undefined) {
+        this._sendCommand({
+          type: "setPlaylist",
+          songs: [song],
+          windowed: true,
+          playIndex: 0,
+          initialPosition: initPos,
+          loadRequestId,
+        });
       } else {
-        this._sendCommand({ type: "jumpToSong", songIndex: 0 });
+        this._sendCommand({ type: "setPlaylist", songs: [song], windowed: true });
+        if (initPos > 0) {
+          this._sendCommand({ type: "jumpToSongAt", songIndex: 0, position: initPos });
+        } else {
+          this._sendCommand({ type: "jumpToSong", songIndex: 0 });
+        }
       }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
@@ -279,11 +297,12 @@ export class NativeRustSound implements ISound {
       return;
     }
 
-    if (this._destroyed) return;
+    if (this._destroyed || this._terminallyCleared) return;
 
     if (isTauri()) {
       await this.requestStatusSync(500);
     }
+    if (this._destroyed || this._terminallyCleared) return;
 
     this._loaded = true;
     this._armNoFFTWarning();
@@ -312,12 +331,57 @@ export class NativeRustSound implements ISound {
    * wrap-repeat when `windowed` is false (repeat-one / single-song list).
    */
   applyNativeQueueWindow(songs: SongData[], options: { windowed: boolean }): boolean {
-    if (this._destroyed || songs.length === 0) return false;
+    if (this._destroyed || this._terminallyCleared || songs.length === 0) return false;
     this._sendCommand({ type: "setPlaylist", songs, windowed: options.windowed });
     this._nativeAdvanceWindowApplied = true;
     // A usable next step exists when the window has further entries, or when
     // wrap-repeat applies (repeat-one / single-song list, windowed=false).
     return songs.length > 1 || !options.windowed;
+  }
+
+  /**
+   * Permanently stop this controller and clear the backend queue.
+   *
+   * Unlike `stop()`, this also removes every queued track so a native backend
+   * that outlives the WebView cannot resume or advance after the frontend queue
+   * has been cleared. The controller is terminal after this call and must not
+   * be reused for another load.
+   */
+  clearPlaybackQueue(): void {
+    if (this._destroyed || this._terminallyCleared) return;
+
+    this._terminallyCleared = true;
+    this._pendingPlayCommand = false;
+    this._clearNativeAdvanceFallback();
+    this._nativeAdvancePending = false;
+    this._nativeAdvanceWindowApplied = false;
+    this._adoptNextBackendMusicId = false;
+    this._nativeAutoMixSyncPending = false;
+    this._backendTrackReady = false;
+    this._loaded = false;
+
+    // Let an in-flight load() unwind without emitting a late load event.
+    this._resolvePendingLoad();
+    this._resolvePendingSyncs();
+
+    this._sendCommand({ type: "pauseAudio" });
+    this._sendCommand({ type: "setPlaylist", songs: [], windowed: true });
+
+    this._playbackState = "stopped";
+    this._state = {
+      musicId: "",
+      position: 0,
+      duration: 0,
+      isPlaying: false,
+      volume: this._volume,
+      playlist: [],
+      currentPlayIndex: 0,
+    };
+    this._musicInfo = null;
+    this._quality = null;
+    this._timeline.reset(0, 0);
+    this._clearFFTState();
+    this._lowFreqVolume = 0;
   }
 
   setAnalysisEnabled(enabled: boolean): void {
@@ -362,7 +426,7 @@ export class NativeRustSound implements ISound {
   // ═════════════════════════════════════════════════════════════╝
 
   private _handleEvent(evt: AudioThreadEvent, seq?: number): void {
-    if (this._destroyed) return;
+    if (this._destroyed || this._terminallyCleared) return;
 
     if (seq !== undefined && seq > 0 && this._markSeqSeen(seq)) return;
 
@@ -373,9 +437,15 @@ export class NativeRustSound implements ISound {
         const expectingNativeAutoMixAdoption =
           this._adoptNextBackendMusicId || this._nativeAutoMixSyncPending;
         const allowInitialTauriAttach = isTauri() && this._allowInitialBackendAttach;
-        if (
-          !this._acceptMusicId(d.musicId, expectingNativeAutoMixAdoption || allowInitialTauriAttach)
-        ) {
+        // Initial attach is only safe when the surviving backend is already on
+        // the exact source requested by this controller. Silently adopting an
+        // unrelated backend track would pair the new store metadata with stale
+        // audio from the previous WebView session.
+        if (allowInitialTauriAttach && d.musicId !== expectedBefore) {
+          this._resolvePendingSyncs();
+          return;
+        }
+        if (!this._acceptMusicId(d.musicId, expectingNativeAutoMixAdoption)) {
           if (this._allowInitialBackendAttach) {
             this._resolvePendingSyncs();
           }
@@ -431,6 +501,7 @@ export class NativeRustSound implements ISound {
       }
 
       case "loadAudio": {
+        if (!this._matchesPendingLoadRequest(evt.data.loadRequestId)) break;
         const wasAdvancePending = this._nativeAdvancePending;
         if (this._acceptMusicId(evt.data.musicId)) {
           this._musicInfo = evt.data.musicInfo;
@@ -451,6 +522,7 @@ export class NativeRustSound implements ISound {
       }
 
       case "loadingAudio":
+        if (!this._matchesPendingLoadRequest(evt.data.loadRequestId)) break;
         if (this._nativeAdvancePending) {
           // Backend confirmed the advance and is resolving the next source —
           // give the download room before falling back to the JS path.
@@ -465,6 +537,7 @@ export class NativeRustSound implements ISound {
       }
 
       case "playStatus": {
+        if (!this._backendTrackReady) break;
         const wantPlaying = evt.data.isPlaying;
         this._pendingPlayCommand = false;
         this._state.isPlaying = wantPlaying;
@@ -503,7 +576,12 @@ export class NativeRustSound implements ISound {
           this._playbackState = "ended";
           this._setLocalPosition(this._state.duration);
           this._emit("end");
-        } else if (this._isActiveController()) {
+        } else if (
+          this._isActiveController() &&
+          (this._nativeAdvancePending ||
+            this._adoptNextBackendMusicId ||
+            this._nativeAutoMixSyncPending)
+        ) {
           this._adoptNextBackendMusicId = true;
           this._nativeAutoMixSyncPending = true;
           void this.requestStatusSync().then(() => {
@@ -610,8 +688,9 @@ export class NativeRustSound implements ISound {
       case "playError":
       case "loadError": {
         const err = new Error(evt.data.error);
-        this._pendingPlayCommand = false;
         if (evt.type === "loadError") {
+          if (!this._matchesPendingLoadRequest(evt.data.loadRequestId)) break;
+          this._pendingPlayCommand = false;
           if (this._nativeAdvancePending) {
             // The prefilled next source failed to load (e.g. expired URL) —
             // hand the transition back to the JS-driven path.
@@ -624,6 +703,7 @@ export class NativeRustSound implements ISound {
             this._emit("loaderror", err);
           }
         } else {
+          this._pendingPlayCommand = false;
           const wasPlaying = this._playbackState === "playing";
           this._playbackState = "paused";
           this._state.isPlaying = false;
@@ -670,6 +750,21 @@ export class NativeRustSound implements ISound {
   private _newSeekRequestId(): number {
     this._nextSeekRequestId = (this._nextSeekRequestId + 1) % SEEK_REQUEST_ID_MODULO;
     return Date.now() * SEEK_REQUEST_ID_MODULO + this._nextSeekRequestId;
+  }
+
+  private _newLoadRequestId(): number {
+    this._nextLoadRequestId = (this._nextLoadRequestId + 1) % SEEK_REQUEST_ID_MODULO;
+    return Date.now() * SEEK_REQUEST_ID_MODULO + this._nextLoadRequestId;
+  }
+
+  private _matchesPendingLoadRequest(requestId: number | null | undefined): boolean {
+    const pendingRequestId = this._pendingLoad?.requestId;
+    if (this._pendingLoad) {
+      return pendingRequestId === undefined
+        ? requestId === undefined || requestId === null
+        : requestId === pendingRequestId;
+    }
+    return requestId === undefined || requestId === null;
   }
 
   private _syncTimelineClock(): void {
@@ -876,7 +971,7 @@ export class NativeRustSound implements ISound {
   }
 
   play(): this {
-    if (this._destroyed) return this;
+    if (this._destroyed || this._terminallyCleared) return this;
     if (this._playbackState === "playing" || this._pendingPlayCommand) return this;
     this._pendingPlayCommand = true;
     this._sendCommand({ type: "resumeAudio" });
@@ -894,7 +989,7 @@ export class NativeRustSound implements ISound {
   }
 
   pause(): this {
-    if (this._destroyed) return this;
+    if (this._destroyed || this._terminallyCleared) return this;
     this._pendingPlayCommand = false;
     this._sendCommand({ type: "pauseAudio" });
     if (this._optimisticPlayback && this._playbackState !== "paused") {
@@ -907,7 +1002,7 @@ export class NativeRustSound implements ISound {
   }
 
   stop(): this {
-    if (this._destroyed) return this;
+    if (this._destroyed || this._terminallyCleared) return this;
     this._pendingPlayCommand = false;
     this._sendCommand({ type: "pauseAudio" });
     this._issueSeek(0);
@@ -922,7 +1017,7 @@ export class NativeRustSound implements ISound {
 
   seek(pos?: number): number | this {
     if (pos !== undefined) {
-      if (!this._destroyed) {
+      if (!this._destroyed && !this._terminallyCleared) {
         const position = this._normalizeSeekPosition(pos);
         const sentNow = this._issueSeek(position);
         if (isTauri() && sentNow) {
@@ -1072,7 +1167,7 @@ export class NativeRustSound implements ISound {
   }
 
   requestStatusSync(timeoutMs = 500): Promise<void> {
-    if (this._destroyed) return Promise.resolve();
+    if (this._destroyed || this._terminallyCleared) return Promise.resolve();
 
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {

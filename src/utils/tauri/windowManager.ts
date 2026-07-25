@@ -191,6 +191,11 @@ export const windowManager = {
     await invoke("set_window_effect_color", { label, r, g, b, a });
   },
 
+  /** Apply the app theme to the native main-window material and reveal the window. */
+  async setMainWindowEffectTheme(dark: boolean): Promise<void> {
+    await invoke("set_main_window_effect_theme", { dark });
+  },
+
   /**
    * Set whether a window ignores cursor events (click-through).
    */

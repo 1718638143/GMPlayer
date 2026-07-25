@@ -91,8 +91,6 @@ let lastScrobbleKey: string | null = null;
 let lastScrobbleAt = 0;
 let playStateSessionKey: string | null = null;
 let playStateSessionId: string | null = null;
-// 重试次数
-let testNumber = 0;
 // 频谱更新动画帧 ID
 let spectrumAnimationId: number | null = null;
 let spectrumUpdateGeneration = 0;
@@ -111,6 +109,36 @@ const PLAYBACK_PRESENTATION_INTERVAL_MS = 1000 / 30;
 const LOW_FREQ_STORE_EPSILON = 0.005;
 const SCROBBLE_DELAY_MS = 3000;
 const SCROBBLE_DUPLICATE_GUARD_MS = 10000;
+
+interface SoundLoadContext {
+  songId?: number;
+  loadAttempt?: number;
+}
+
+let soundLoadAttempt = 0;
+const loadRetryCountBySongId = new Map<number, number>();
+const MAX_LOAD_RETRIES = 4;
+/** Songs that error a few times but never succeed leave entries behind —
+ * keep the map bounded over long sessions by evicting the oldest entry. */
+const MAX_LOAD_RETRY_ENTRIES = 64;
+
+const clearLoadRetryCount = (songId: number): void => {
+  loadRetryCountBySongId.delete(songId);
+};
+
+const takeLoadRetry = (songId: number): boolean => {
+  const retryCount = loadRetryCountBySongId.get(songId) ?? 0;
+  if (retryCount >= MAX_LOAD_RETRIES) {
+    loadRetryCountBySongId.delete(songId);
+    return false;
+  }
+  if (retryCount === 0 && loadRetryCountBySongId.size >= MAX_LOAD_RETRY_ENTRIES) {
+    const oldest = loadRetryCountBySongId.keys().next().value;
+    if (oldest !== undefined) loadRetryCountBySongId.delete(oldest);
+  }
+  loadRetryCountBySongId.set(songId, retryCount + 1);
+  return true;
+};
 
 const getUsableDuration = (duration: number, fallback = 0): number => {
   if (Number.isFinite(duration) && duration > 0) return duration;
@@ -668,12 +696,37 @@ const setupNativeSound = (
   sound: NativeRustSound,
   autoPlay: boolean,
   options: { allowInitialBackendAttach?: boolean } = {},
+  context: SoundLoadContext = {},
 ): ISound => {
   const music = musicStore();
   const settings = settingStore();
   const user = userStore();
+  const boundSongId = Number(context.songId ?? music.getPlaySongData?.id);
+  const loadAttempt = context.loadAttempt ?? ++soundLoadAttempt;
 
-  SoundManager.setCurrentSound(sound);
+  const isRequestCurrent = (): boolean => {
+    if (!Number.isFinite(boundSongId) || boundSongId <= 0) return false;
+    return Number(music.getPlaySongData?.id) === boundSongId;
+  };
+
+  const isActiveBoundSound = (): boolean =>
+    isRequestCurrent() &&
+    SoundManager.isCurrentSoundForSong(sound, boundSongId) &&
+    window.$player === sound;
+
+  const isCurrentLoadOwner = (): boolean =>
+    loadAttempt === soundLoadAttempt &&
+    isRequestCurrent() &&
+    SoundManager.isCurrentSoundForSong(sound, boundSongId);
+
+  const discardIfStale = (): boolean => {
+    if (isCurrentLoadOwner()) return false;
+    if (!SoundManager.unloadIfCurrent(sound)) sound.unload();
+    return true;
+  };
+
+  SoundManager.setCurrentSound(sound, boundSongId);
+  window.$player = sound;
   music.loadingStage = "buffering";
 
   applyGlobalCoverPalette(music.getPlaySongData.album.picUrl).catch((err) => {
@@ -699,7 +752,7 @@ const setupNativeSound = (
   // ── Load timeout guard ────────────────────────────────────────
   let _loadClearTimeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
     _loadClearTimeout = null;
-    if (music.isLoadingSong) {
+    if (isCurrentLoadOwner() && music.isLoadingSong) {
       console.warn("[NativeSound] Audio load timeout — force-clearing loading state");
       music.isLoadingSong = false;
       music.loadingStage = "idle";
@@ -716,8 +769,9 @@ const setupNativeSound = (
   // ── Load ──────────────────────────────────────────────────────
   sound.once("load", () => {
     _clearLoadTimeout();
+    if (discardIfStale()) return;
     music.loadingStage = "idle";
-    const songId = music.getPlaySongData?.id;
+    const songId = boundSongId;
     const sourceId = music.getPlaySongData?.sourceId ? music.getPlaySongData.sourceId : 0;
     const isLogin = user.userLogin;
 
@@ -742,7 +796,9 @@ const setupNativeSound = (
     // the load via `jumpToSongAt` (see setupNativeSound's `sound.load(savedPos)`
     // call). No extra `sound.seek()` here — that used to race with the
     // first `SyncStatus` and overwrite the optimistic local position.
+    music.playingSongId = boundSongId;
     music.isLoadingSong = false;
+    clearLoadRetryCount(boundSongId);
     if (isLogin) scheduleScrobble("native-load");
 
     // Sync volume from the store. The Rust backend creates a fresh
@@ -769,7 +825,7 @@ const setupNativeSound = (
 
   // ── Play ──────────────────────────────────────────────────────
   function handleNativePlay(): void {
-    if (window.$player && window.$player !== sound) return;
+    if (!isActiveBoundSound()) return;
     const autoMixCheck = getAutoMixEngine();
     if (autoMixCheck.isCrossfading()) return;
 
@@ -784,7 +840,8 @@ const setupNativeSound = (
     const songName = playSongData?.name;
     const songArtist = playSongData.artist[0]?.name;
 
-    testNumber = 0;
+    clearLoadRetryCount(boundSongId);
+    music.playingSongId = boundSongId;
     music.setPlayState(true);
 
     if (typeof window.$message !== "undefined" && songArtist !== null) {
@@ -822,7 +879,7 @@ const setupNativeSound = (
 
   // ── Pause ─────────────────────────────────────────────────────
   sound.on("pause", () => {
-    if (window.$player && window.$player !== sound) return;
+    if (!isActiveBoundSound()) return;
     const autoMix = getAutoMixEngine();
     if (autoMix.isCrossfading()) return;
     checkpointActivePosition(sound, music);
@@ -834,7 +891,7 @@ const setupNativeSound = (
 
   // ── End ───────────────────────────────────────────────────────
   sound.on("end", () => {
-    if (window.$player && window.$player !== sound) return;
+    if (!isActiveBoundSound()) return;
     stopTimeUpdate();
     stopSpectrumUpdate();
     if (IS_DEV) console.log("[Native] 歌曲播放结束");
@@ -847,9 +904,9 @@ const setupNativeSound = (
   // ── Errors ────────────────────────────────────────────────────
   sound.on("loaderror", () => {
     _clearLoadTimeout();
+    if (discardIfStale()) return;
     music.loadingStage = "error";
-    if (testNumber < 4) {
-      testNumber++;
+    if (takeLoadRetry(boundSongId)) {
       if (music.getPlaylists[0]) window.$getPlaySongData(music.getPlaySongData);
     } else {
       window.$message.error(getLanguageData("songLoadTest"), { closable: true, duration: 0 });
@@ -859,6 +916,7 @@ const setupNativeSound = (
 
   sound.on("playerror", () => {
     _clearLoadTimeout();
+    if (discardIfStale()) return;
     music.loadingStage = "error";
     music.setPlayState(false);
     music.isLoadingSong = false;
@@ -869,7 +927,7 @@ const setupNativeSound = (
   void sound.load(savedPosAtLoad, {
     allowInitialBackendAttach: options.allowInitialBackendAttach === true,
   });
-  return (window.$player = sound);
+  return sound;
 };
 
 /**
@@ -882,19 +940,29 @@ export const createSound = (
   src: string,
   autoPlay = true,
   preloadedSound?: BufferedSound,
+  context: SoundLoadContext = {},
 ): ISound | undefined => {
   try {
-    // If AutoMix is crossfading, it handles sound creation — skip normal flow
+    // AutoMix owns sound creation only for the song it is actually handing off.
+    // A manual selection can arrive during the finishing/native-hold window and
+    // must be allowed to replace that sound instead of being silently swallowed.
     const autoMix = getAutoMixEngine();
     if (autoMix.isHandoffActive()) {
-      if (IS_DEV) {
-        console.log("[createSound] AutoMix handoff active, skipping normal sound creation");
+      const requestedSongId = Number(context.songId);
+      const handoffSongId = SoundManager.getSongId(window.$player);
+      if (Number.isFinite(requestedSongId) && requestedSongId === handoffSongId) {
+        if (IS_DEV) {
+          console.log("[createSound] AutoMix owns requested song, reusing handoff sound");
+        }
+        return window.$player;
       }
-      return window.$player;
+      autoMix.cancelCrossfade();
     }
 
     const allowInitialBackendAttach =
       isNativeAudioBackendAvailable() && !SoundManager.hasSound() && !window.$player;
+    const loadAttempt = ++soundLoadAttempt;
+    const loadContext: SoundLoadContext = { ...context, loadAttempt };
 
     SoundManager.unload();
     stopSpectrumUpdate();
@@ -926,7 +994,7 @@ export const createSound = (
           : "[createSound] Using WASM audio backend",
       );
       const sound = new NativeRustSound(src);
-      return setupNativeSound(sound, autoPlay, { allowInitialBackendAttach });
+      return setupNativeSound(sound, autoPlay, { allowInitialBackendAttach }, loadContext);
     }
     console.log("[createSound] Using WEB audio backend");
 
@@ -935,6 +1003,12 @@ export const createSound = (
     const music = musicStore();
     const settings = settingStore();
     const user = userStore();
+    const boundSongId = Number(context.songId ?? music.getPlaySongData?.id);
+
+    const isRequestCurrent = (): boolean => {
+      if (!Number.isFinite(boundSongId) || boundSongId <= 0) return false;
+      return Number(music.getPlaySongData?.id) === boundSongId;
+    };
 
     // Use preloaded sound or create a new BufferedSound
     const sound =
@@ -948,7 +1022,24 @@ export const createSound = (
       // Preloaded sound was created with volume=0 — restore actual volume
       sound.volume(music.persistData.playVolume);
     }
-    SoundManager.setCurrentSound(sound);
+    SoundManager.setCurrentSound(sound, boundSongId);
+    window.$player = sound;
+    const isActiveBoundSound = (): boolean =>
+      isRequestCurrent() &&
+      SoundManager.isCurrentSoundForSong(sound, boundSongId) &&
+      window.$player === sound;
+    const isCurrentLoadOwner = (): boolean =>
+      loadAttempt === soundLoadAttempt &&
+      isRequestCurrent() &&
+      SoundManager.isCurrentSoundForSong(sound, boundSongId);
+    const discardIfStale = (): boolean => {
+      if (isCurrentLoadOwner()) return false;
+      if (!SoundManager.unloadIfCurrent(sound)) sound.unload();
+      return true;
+    };
+    if (preloadedSound) {
+      music.playingSongId = boundSongId;
+    }
     // Mark the loading stage so the UI can show "Buffering…" instead of a generic spinner.
     music.loadingStage = "buffering";
 
@@ -983,7 +1074,7 @@ export const createSound = (
     // stuck loading state after 15 s so the spinner doesn't stay forever.
     let _loadClearTimeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
       _loadClearTimeout = null;
-      if (music.isLoadingSong) {
+      if (isCurrentLoadOwner() && music.isLoadingSong) {
         console.warn("[createSound] Audio load timeout — force-clearing loading state");
         music.isLoadingSong = false;
         music.loadingStage = "idle";
@@ -1000,8 +1091,9 @@ export const createSound = (
     // 首次加载事件
     sound?.once("load", () => {
       _clearLoadTimeout();
+      if (discardIfStale()) return;
       music.loadingStage = "idle";
-      const songId = music.getPlaySongData?.id;
+      const songId = boundSongId;
       const sourceId = music.getPlaySongData?.sourceId ? music.getPlaySongData.sourceId : 0;
       const isLogin = user.userLogin;
 
@@ -1024,7 +1116,9 @@ export const createSound = (
         resetPlaySongTime(music);
       }
       // 取消加载状态
+      music.playingSongId = boundSongId;
       music.isLoadingSong = false;
+      clearLoadRetryCount(boundSongId);
       // 听歌打卡
       if (isLogin) scheduleScrobble("load");
     });
@@ -1034,7 +1128,7 @@ export const createSound = (
       // If this sound is no longer the active player (e.g., AutoMix transitioned
       // to a new sound), don't run the full play handler — avoids duplicate
       // notifications, wrong time tracking, and wrong spectrum monitoring.
-      if (window.$player && window.$player !== sound) return;
+      if (!isActiveBoundSound()) return;
       // During AutoMix crossfade, this sound is the outgoing one being resumed —
       // skip to prevent side effects (window.$player may not be updated yet).
       const autoMixCheck = getAutoMixEngine();
@@ -1054,7 +1148,8 @@ export const createSound = (
       const songName = playSongData?.name;
       const songArtist = playSongData.artist[0]?.name;
 
-      testNumber = 0;
+      clearLoadRetryCount(boundSongId);
+      music.playingSongId = boundSongId;
       music.setPlayState(true);
 
       // 播放通知
@@ -1101,7 +1196,7 @@ export const createSound = (
     // 暂停事件
     sound?.on("pause", () => {
       // If this sound is no longer the active player, ignore
-      if (window.$player && window.$player !== sound) return;
+      if (!isActiveBoundSound()) return;
       // During AutoMix crossfade, outgoing sound pausing is expected — don't change play state
       const autoMix = getAutoMixEngine();
       if (autoMix.isCrossfading()) {
@@ -1123,7 +1218,7 @@ export const createSound = (
     sound?.on("end", () => {
       // If this sound is no longer the active player (e.g., AutoMix transitioned
       // to a new sound), don't cancel the current player's time/spectrum loops
-      if (window.$player && window.$player !== sound) return;
+      if (!isActiveBoundSound()) return;
       stopTimeUpdate();
       stopSpectrumUpdate();
       if (IS_DEV) {
@@ -1138,15 +1233,16 @@ export const createSound = (
     // 错误事件
     sound?.on("loaderror", () => {
       _clearLoadTimeout();
+      if (discardIfStale()) return;
       music.loadingStage = "error";
-      if (testNumber > 2) {
+      const shouldRetry = takeLoadRetry(boundSongId);
+      if (!shouldRetry) {
         window.$message.error(getLanguageData("songPlayError"));
         console.error(getLanguageData("songPlayError"));
         music.setPlayState(false);
       }
-      if (testNumber < 4) {
+      if (shouldRetry) {
         if (music.getPlaylists[0]) window.$getPlaySongData(music.getPlaySongData);
-        testNumber++;
       } else {
         window.$message.error(getLanguageData("songLoadTest"), {
           closable: true,
@@ -1157,6 +1253,7 @@ export const createSound = (
     });
     sound?.on("playerror", () => {
       _clearLoadTimeout();
+      if (discardIfStale()) return;
       music.loadingStage = "error";
       window.$message.error(getLanguageData("songPlayError"));
       console.error(getLanguageData("songPlayError"));
@@ -1166,18 +1263,18 @@ export const createSound = (
 
     // Stalled: network issue while buffering → surface it in the UI.
     sound?.on("stalled", () => {
-      if (window.$player && window.$player !== sound) return;
+      if (!isActiveBoundSound()) return;
       music.loadingStage = "stalled";
     });
 
     // Waiting: data ran out mid-playback (rebuffering) → reset to buffering stage.
     sound?.on("waiting", () => {
-      if (window.$player && window.$player !== sound) return;
+      if (!isActiveBoundSound()) return;
       if (music.isLoadingSong) music.loadingStage = "buffering";
     });
 
     // 返回音频对象
-    return (window.$player = sound);
+    return sound;
   } catch (err) {
     window.$message.error(getLanguageData("songLoadError"));
     console.error(getLanguageData("songLoadError"), err);
@@ -1314,6 +1411,10 @@ export const soundStop = (sound: ISound | undefined): void => {
 export const adoptIncomingSound = (incomingSound: ISound): void => {
   const music = musicStore();
   const settings = settingStore();
+  const songId = Number(music.getPlaySongData?.id);
+
+  SoundManager.setCurrentSongId(songId, incomingSound);
+  music.playingSongId = Number.isFinite(songId) && songId > 0 ? songId : null;
 
   // Stop any existing tracking from outgoing sound
   stopSpectrumUpdate();
@@ -1442,6 +1543,7 @@ export const adoptIncomingSound = (incomingSound: ISound): void => {
 export const syncNativeAutoMixCurrentSound = async (sound: ISound): Promise<void> => {
   const music = musicStore();
   const settings = settingStore();
+  const songId = Number(music.getPlaySongData?.id);
 
   if (isNativeRustSoundLike(sound)) {
     await sound.requestStatusSync();
@@ -1450,6 +1552,8 @@ export const syncNativeAutoMixCurrentSound = async (sound: ISound): Promise<void
   stopSpectrumUpdate();
   stopTimeUpdate();
 
+  SoundManager.setCurrentSongId(songId, sound);
+  music.playingSongId = Number.isFinite(songId) && songId > 0 ? songId : null;
   music.setPlayState(true);
   music.isLoadingSong = false;
 
@@ -1524,7 +1628,7 @@ export const handoffAutoMixToNativeBackend = async (
     nativeSound.seek(latestPosition);
     nativeSound.volume(volume);
 
-    SoundManager.setCurrentSound(nativeSound);
+    SoundManager.setCurrentSound(nativeSound, music.getPlaySongData?.id);
     window.$player = nativeSound;
     adoptIncomingSound(nativeSound);
     nativeSound.play();
@@ -1540,7 +1644,7 @@ export const handoffAutoMixToNativeBackend = async (
     return true;
   } catch (err) {
     nativeSound.unload();
-    SoundManager.setCurrentSound(currentSound);
+    SoundManager.setCurrentSound(currentSound, music.getPlaySongData?.id);
     window.$player = currentSound;
     if (IS_DEV) {
       console.warn("[AutoMix handoff] Native backend restore failed", err);

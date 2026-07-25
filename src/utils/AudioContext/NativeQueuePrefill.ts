@@ -22,6 +22,7 @@ import { resolveSongUrl } from "./resolveSongUrl";
 // Import stores directly to avoid circular dependency through barrel exports
 import useMusicDataStore from "@/store/musicData";
 import useListenTogetherStore from "@/store/listenTogether";
+import { SoundManager } from "./SoundManager";
 
 const IS_DEV = import.meta.env?.DEV ?? false;
 
@@ -107,6 +108,7 @@ export async function prefillNativeQueue(): Promise<void> {
 
   const music = useMusicDataStore();
   const listenTogether = useListenTogetherStore();
+  cancelNativeQueuePrefill();
   if (music.persistData.personalFmMode) return;
   if (listenTogether.isInRoom) return;
 
@@ -119,7 +121,6 @@ export async function prefillNativeQueue(): Promise<void> {
   if (!currentSong?.id) return;
   const mode = music.persistData.playSongMode;
 
-  cancelNativeQueuePrefill();
   const generation = prefillGeneration;
   abortController = new AbortController();
   const signal = abortController.signal;
@@ -169,11 +170,17 @@ export async function prefillNativeQueue(): Promise<void> {
 
   if (signal.aborted || generation !== prefillGeneration) return;
   if (sound.isDestroyed() || window.$player !== sound) return;
+  if (music.persistData.personalFmMode || listenTogether.isInRoom) return;
   // Bail if the store moved on while URLs were resolving — the new track's
   // own play handler re-runs the prefill against fresh state.
+  const livePlaylists = music.persistData.playlists;
+  const liveCurrentSong = livePlaylists[currentIndex];
   if (
+    livePlaylists.length === 0 ||
     music.persistData.playSongIndex !== currentIndex ||
-    (music.playingSongId ?? currentSong.id) !== currentSong.id
+    liveCurrentSong?.id !== currentSong.id ||
+    music.playingSongId !== currentSong.id ||
+    SoundManager.getSongId(sound) !== Number(currentSong.id)
   ) {
     return;
   }

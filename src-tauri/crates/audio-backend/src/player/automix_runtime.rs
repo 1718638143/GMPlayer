@@ -96,7 +96,7 @@ impl AudioPlayer {
     }
 
     pub(super) async fn cancel_native_automix_runtime(&mut self) {
-        self.native_crossfade_generation = self.native_crossfade_generation.wrapping_add(1);
+        self.bump_native_crossfade_gen();
         self.native_crossfade_active = false;
         self.native_crossfade_transition_id = None;
         self.secondary_playback_id = None;
@@ -122,12 +122,18 @@ impl AudioPlayer {
     }
 
     fn schedule_native_automix_trigger(&mut self, start_time: f64) {
-        self.native_crossfade_generation = self.native_crossfade_generation.wrapping_add(1);
-        let generation = self.native_crossfade_generation;
+        let generation = self.bump_native_crossfade_gen();
+        let generation_watch = Arc::clone(&self.native_crossfade_generation);
         let clock = Arc::clone(&self.clock);
         let tx = self.self_msg_tx.clone();
         tokio::spawn(async move {
             loop {
+                // Exit as soon as this transition is cancelled or superseded —
+                // otherwise a paused player leaves this poll running forever and
+                // repeated prepares accumulate live 20 Hz pollers.
+                if generation_watch.load(std::sync::atomic::Ordering::Acquire) != generation {
+                    break;
+                }
                 let position = clock.lock().position();
                 if position + 0.025 >= start_time {
                     let _ = tx.send(AudioThreadEventMessage::new(
@@ -375,11 +381,7 @@ impl AudioPlayer {
             .await;
 
         let finish_index = prepared.next_index;
-        self.schedule_native_automix_complete(
-            self.native_crossfade_generation,
-            finish_index,
-            duration,
-        );
+        self.schedule_native_automix_complete(self.native_crossfade_gen(), finish_index, duration);
 
         Ok(())
     }

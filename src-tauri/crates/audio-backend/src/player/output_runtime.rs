@@ -139,7 +139,7 @@ impl AudioPlayer {
         );
         self.active_deck = DeckId::Primary;
         self.secondary_playback_id = None;
-        self.native_crossfade_generation = self.native_crossfade_generation.wrapping_add(1);
+        self.bump_native_crossfade_gen();
         self.native_crossfade_active = false;
         self.native_crossfade_transition_id = None;
         self.reset_output_health();
@@ -202,7 +202,7 @@ impl AudioPlayer {
             .set_deck_gain(DeckId::Primary, self.active_norm_gain);
         self.deck_mixer.set_deck_gain(DeckId::Secondary, 0.0);
         self.secondary_norm_gain = 1.0;
-        self.native_crossfade_generation = self.native_crossfade_generation.wrapping_add(1);
+        self.bump_native_crossfade_gen();
         self.native_crossfade_active = false;
         self.native_crossfade_transition_id = None;
         self.output_epoch = self.output_epoch.wrapping_add(1);
@@ -285,7 +285,7 @@ impl AudioPlayer {
         let tx = self.output_refresh_tx.clone();
         tokio::task::spawn_blocking(move || {
             let opened_event =
-                |output: LowLatencyOutput| match output::selected_output_device_key(&selector) {
+                |output: LowLatencyOutput| match output::refreshed_output_device_key(&selector) {
                     Ok(selected_device) if selected_device == output.device().clone() => {
                         OutputRefreshEvent::Opened {
                             generation,
@@ -575,8 +575,7 @@ impl AudioPlayer {
                     self.deck_mixer.set_dsp(self.dsp_config.clone());
                     self.active_deck = DeckId::Primary;
                     self.secondary_playback_id = None;
-                    self.native_crossfade_generation =
-                        self.native_crossfade_generation.wrapping_add(1);
+                    self.bump_native_crossfade_gen();
                     self.native_crossfade_active = false;
                     self.native_crossfade_transition_id = None;
                     self.clock.lock().set_render_clock(

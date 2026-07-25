@@ -122,6 +122,7 @@ impl AudioPlayer {
         &mut self,
         clear_sink: bool,
         initial_position: Option<f64>,
+        load_request_id: Option<u64>,
     ) -> anyhow::Result<()> {
         self.pending_seek = None;
         let song_data = self
@@ -133,13 +134,15 @@ impl AudioPlayer {
             SongData::Local { file_path, .. } => file_path.clone(),
             _ => return Err(anyhow::anyhow!("当前实现仅支持本地文件 / HTTP(S) 流")),
         };
+        let music_id = song_data.get_id();
 
         // Emit LoadingAudio so the frontend can show a spinner / await load.
         let _ = self
             .emitter()
             .emit(AudioThreadEvent::LoadingAudio {
-                music_id: song_data.get_id(),
+                music_id: music_id.clone(),
                 current_play_index: self.current_play_index,
+                load_request_id,
             })
             .await;
 
@@ -187,10 +190,9 @@ impl AudioPlayer {
             // Fresh (non-automix) load starts unnormalized at unity gain.
             self.active_norm_gain = 1.0;
             self.secondary_norm_gain = 1.0;
-            self.native_crossfade_generation = self.native_crossfade_generation.wrapping_add(1);
+            self.bump_native_crossfade_gen();
             self.native_crossfade_active = false;
         }
-
         self.current_file_path = Some(file_path.clone());
 
         // Resolve URL → local path (download to temp) so rodio's File-based
@@ -219,6 +221,8 @@ impl AudioPlayer {
                     let _ = self
                         .emitter()
                         .emit(AudioThreadEvent::LoadError {
+                            music_id: music_id.clone(),
+                            load_request_id,
                             error: e.to_string(),
                         })
                         .await;
@@ -245,6 +249,8 @@ impl AudioPlayer {
                 let _ = self
                     .emitter()
                     .emit(AudioThreadEvent::LoadError {
+                        music_id: music_id.clone(),
+                        load_request_id,
                         error: e.to_string(),
                     })
                     .await;
@@ -297,6 +303,8 @@ impl AudioPlayer {
                 let _ = self
                     .emitter()
                     .emit(AudioThreadEvent::LoadError {
+                        music_id: music_id.clone(),
+                        load_request_id,
                         error: e.to_string(),
                     })
                     .await;
@@ -345,10 +353,11 @@ impl AudioPlayer {
         let _ = self
             .emitter()
             .emit(AudioThreadEvent::LoadAudio {
-                music_id: song_data.get_id(),
+                music_id,
                 music_info: display_info,
                 quality,
                 current_play_index: self.current_play_index,
+                load_request_id,
             })
             .await;
         if is_now_playing {

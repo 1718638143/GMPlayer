@@ -17,7 +17,7 @@
 /// - `automix_runtime` — native AutoMix deck preload/crossfade scheduling
 /// - `status`          — `EventEmitter` + position/seek/SyncStatus publishing
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -134,7 +134,11 @@ struct AudioPlayer {
     output_health_stalled_ticks: u8,
     last_output_error: Option<String>,
     decoder_playback_id: u64,
-    native_crossfade_generation: u64,
+    /// Shared so the AutoMix trigger poll task (`schedule_native_automix_trigger`)
+    /// can observe cancellation/supersession and exit instead of polling the
+    /// clock forever when a prepared transition is cancelled or playback stays
+    /// paused. Bump only through `bump_native_crossfade_gen`.
+    native_crossfade_generation: Arc<AtomicU64>,
     native_crossfade_active: bool,
     native_crossfade_transition_id: Option<u64>,
     automix_prepare_generation: u64,
@@ -311,7 +315,7 @@ impl AudioPlayer {
             output_health_stalled_ticks: 0,
             last_output_error: None,
             decoder_playback_id: 0,
-            native_crossfade_generation: 0,
+            native_crossfade_generation: Arc::new(AtomicU64::new(0)),
             native_crossfade_active: false,
             native_crossfade_transition_id: None,
             automix_prepare_generation: 0,
@@ -415,6 +419,17 @@ impl AudioPlayer {
             seek = next_seek;
         }
         seek
+    }
+
+    fn native_crossfade_gen(&self) -> u64 {
+        self.native_crossfade_generation.load(Ordering::Acquire)
+    }
+
+    /// Invalidate any in-flight trigger poll task and return the new generation.
+    fn bump_native_crossfade_gen(&self) -> u64 {
+        self.native_crossfade_generation
+            .fetch_add(1, Ordering::AcqRel)
+            .wrapping_add(1)
     }
 
     fn sync_current_from_queue(&mut self) -> bool {

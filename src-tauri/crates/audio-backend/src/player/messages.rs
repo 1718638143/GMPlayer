@@ -102,25 +102,25 @@ impl AudioPlayer {
                     if self.playback_queue.next().is_none() || !self.sync_current_from_queue() {
                         return self.finish_message(msg).await;
                     }
-                    self.start_playing_song(true, None).await?;
+                    self.start_playing_song(true, None, None).await?;
                 }
                 AudioThreadMessage::NextSongGapless => {
                     if self.playback_queue.next().is_none() || !self.sync_current_from_queue() {
                         return self.finish_message(msg).await;
                     }
-                    self.start_playing_song(true, None).await?;
+                    self.start_playing_song(true, None, None).await?;
                 }
                 AudioThreadMessage::PrevSong => {
                     if self.playback_queue.prev().is_none() || !self.sync_current_from_queue() {
                         return self.finish_message(msg).await;
                     }
-                    self.start_playing_song(true, None).await?;
+                    self.start_playing_song(true, None, None).await?;
                 }
                 AudioThreadMessage::JumpToSong { song_index } => {
                     if self.playback_queue.set_index(*song_index).is_some()
                         && self.sync_current_from_queue()
                     {
-                        self.start_playing_song(true, None).await?;
+                        self.start_playing_song(true, None, None).await?;
                     }
                 }
                 AudioThreadMessage::JumpToSongAt {
@@ -130,22 +130,37 @@ impl AudioPlayer {
                     if self.playback_queue.set_index(*song_index).is_some()
                         && self.sync_current_from_queue()
                     {
-                        self.start_playing_song(true, Some(*position)).await?;
+                        self.start_playing_song(true, Some(*position), None).await?;
                     }
                 }
-                AudioThreadMessage::SetPlaylist { songs, windowed } => {
+                AudioThreadMessage::SetPlaylist {
+                    songs,
+                    windowed,
+                    play_index,
+                    initial_position,
+                    load_request_id,
+                } => {
                     let current_id = self.current_song.as_ref().map(SongData::get_id);
                     self.playback_queue.set_playlist(songs.clone(), *windowed);
-                    if let Some(current_id) = current_id.as_deref() {
-                        // Identity wins over the clamped positional index: prefill
-                        // windows replace the playlist mid-track, and the window can
-                        // contain an entry whose orig_order collides with the stale
-                        // index (end-of-list wrap `[cur@5, next@0]`). Re-anchoring by
-                        // id keeps `current_song` on what is audibly playing.
-                        self.playback_queue.set_index_by_song_id(current_id);
+                    if play_index.is_none() {
+                        if let Some(current_id) = current_id.as_deref() {
+                            // Identity wins over the clamped positional index: prefill
+                            // windows replace the playlist mid-track, and the window can
+                            // contain an entry whose orig_order collides with the stale
+                            // index (end-of-list wrap `[cur@5, next@0]`). Re-anchoring by
+                            // id keeps `current_song` on what is audibly playing.
+                            self.playback_queue.set_index_by_song_id(current_id);
+                        }
                     }
                     self.playlist = self.playback_queue.playlist_cloned();
-                    self.sync_current_from_queue();
+                    let should_start = if let Some(index) = *play_index {
+                        let positioned = self.playback_queue.set_index(index).is_some();
+                        let synced = self.sync_current_from_queue();
+                        positioned && synced
+                    } else {
+                        self.sync_current_from_queue();
+                        false
+                    };
                     self.playlist_inited = true;
                     let _ = emitter
                         .emit(AudioThreadEvent::PlayListChanged {
@@ -153,6 +168,10 @@ impl AudioPlayer {
                             current_play_index: self.current_play_index,
                         })
                         .await;
+                    if should_start {
+                        self.start_playing_song(true, *initial_position, *load_request_id)
+                            .await?;
+                    }
                 }
                 AudioThreadMessage::SetAnalysis { enabled } => {
                     self.analysis_enabled.store(*enabled, Ordering::Release);
@@ -265,7 +284,7 @@ impl AudioPlayer {
                 }
                 AudioThreadMessage::AutomixForceStart { generation } => {
                     if let Some(generation) = generation {
-                        if *generation != self.native_crossfade_generation {
+                        if *generation != self.native_crossfade_gen() {
                             return self.finish_message(msg).await;
                         }
                     }
@@ -284,7 +303,7 @@ impl AudioPlayer {
                     current_index,
                     position,
                 } => {
-                    if *generation != self.native_crossfade_generation {
+                    if *generation != self.native_crossfade_gen() {
                         return self.finish_message(msg).await;
                     }
                     self.complete_native_automix(*current_index, *position)

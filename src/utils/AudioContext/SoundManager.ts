@@ -17,6 +17,8 @@ const IS_DEV = import.meta.env?.DEV ?? false;
 class SoundManagerClass {
   private _currentSound: ISound | null = null;
   private _outgoingSound: ISound | null = null;
+  private _currentSongId: number | null = null;
+  private _outgoingSongId: number | null = null;
 
   unload(): void {
     if (this._outgoingSound) {
@@ -25,33 +27,69 @@ class SoundManagerClass {
       }
       this._outgoingSound.unload();
       this._outgoingSound = null;
+      this._outgoingSongId = null;
     }
     if (this._currentSound) {
+      const currentSound = this._currentSound;
       if (IS_DEV) {
         console.log("SoundManager: unloading current sound");
       }
-      this._currentSound.unload();
+      currentSound.unload();
       this._currentSound = null;
+      this._currentSongId = null;
       // Clear global reference to allow garbage collection
-      if (window.$player) {
+      if (window.$player === currentSound) {
         window.$player = undefined;
       }
     }
   }
 
-  setCurrentSound(sound: ISound): void {
+  setCurrentSound(sound: ISound, songId?: number | null): void {
     this._currentSound = sound;
+    this._currentSongId = this._normalizeSongId(songId);
   }
 
   getCurrentSound(): ISound | null {
     return this._currentSound;
   }
 
+  setCurrentSongId(songId: number | null | undefined, sound = this._currentSound): void {
+    if (!sound) return;
+    const normalized = this._normalizeSongId(songId);
+    if (sound === this._currentSound) {
+      this._currentSongId = normalized;
+    } else if (sound === this._outgoingSound) {
+      this._outgoingSongId = normalized;
+    }
+  }
+
+  getSongId(sound = this._currentSound): number | null {
+    if (!sound) return null;
+    if (sound === this._currentSound) return this._currentSongId;
+    if (sound === this._outgoingSound) return this._outgoingSongId;
+    return null;
+  }
+
+  isCurrentSoundForSong(sound: ISound, songId: number | null | undefined): boolean {
+    return sound === this._currentSound && this._currentSongId === this._normalizeSongId(songId);
+  }
+
+  unloadIfCurrent(sound: ISound): boolean {
+    if (sound !== this._currentSound) return false;
+    sound.unload();
+    this._currentSound = null;
+    this._currentSongId = null;
+    if (window.$player === sound) {
+      window.$player = undefined;
+    }
+    return true;
+  }
+
   /**
    * Begin a crossfade transition: move current sound to outgoing,
    * set the new sound as current.
    */
-  beginTransition(newSound: ISound): void {
+  beginTransition(newSound: ISound, songId?: number | null): void {
     if (IS_DEV) {
       console.log("SoundManager: beginTransition — current → outgoing");
     }
@@ -60,7 +98,9 @@ class SoundManagerClass {
       this._outgoingSound.unload();
     }
     this._outgoingSound = this._currentSound;
+    this._outgoingSongId = this._currentSongId;
     this._currentSound = newSound;
+    this._currentSongId = this._normalizeSongId(songId);
   }
 
   /**
@@ -73,6 +113,7 @@ class SoundManagerClass {
       }
       this._outgoingSound.unload();
       this._outgoingSound = null;
+      this._outgoingSongId = null;
     }
   }
 
@@ -91,7 +132,9 @@ class SoundManagerClass {
       this._currentSound.unload();
     }
     this._currentSound = this._outgoingSound;
+    this._currentSongId = this._outgoingSongId;
     this._outgoingSound = null;
+    this._outgoingSongId = null;
   }
 
   /**
@@ -113,6 +156,11 @@ class SoundManagerClass {
    */
   isPlaying(): boolean {
     return this._currentSound?.playing() ?? false;
+  }
+
+  private _normalizeSongId(songId: number | null | undefined): number | null {
+    const value = Number(songId);
+    return Number.isFinite(value) && value > 0 ? value : null;
   }
 }
 

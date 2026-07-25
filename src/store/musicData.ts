@@ -13,8 +13,10 @@ import {
   fadePlayOrPause,
   getAutoMixEngine,
   getAudioPreloader,
+  SoundManager,
+  cancelNativeQueuePrefill,
 } from "@/utils/AudioContext";
-import { isAudioBackendRuntimeAvailable } from "@/utils/tauri/NativeRustSound";
+import { NativeRustSound, isAudioBackendRuntimeAvailable } from "@/utils/tauri/NativeRustSound";
 import getLanguageData from "@/utils/getLanguageData";
 import type { SongLyric } from "@/utils/LyricsProcessor";
 import useMusicLyricStore from "./musicLyric";
@@ -271,6 +273,9 @@ const useMusicDataStore = defineStore("musicData", {
             .then((response) => {
               if (response.ok) {
                 console.log(`歌曲 ${song.name} 预加载完成`);
+                // 集合只用来避免重复预取；上限防止长会话中无限增长，
+                // 清空后重新预取会直接命中浏览器 HTTP 缓存，代价可忽略。
+                if (this.preloadedSongIds.size >= 500) this.preloadedSongIds.clear();
                 this.preloadedSongIds.add(song.id);
               } else {
                 throw new Error(`Response status: ${response.status}`);
@@ -419,6 +424,13 @@ const useMusicDataStore = defineStore("musicData", {
     },
 
     setPlaylists(value: SongData[]) {
+      if (value.length === 0) {
+        this.clearPlaylists();
+        return;
+      }
+      const autoMix = getAutoMixEngine();
+      if (autoMix.isHandoffActive()) autoMix.cancelCrossfade();
+      cancelNativeQueuePrefill();
       this.persistData.playlists = value.slice();
       this.persistData.playSongIndex = Math.min(
         Math.max(0, this.persistData.playSongIndex),
@@ -487,7 +499,6 @@ const useMusicDataStore = defineStore("musicData", {
       if (time) playbackStore.setPlaySongTime(time);
       else playbackStore.resetPlaySongTime({ checkpoint: false });
       const songId = this.persistData.playlists[index]?.id ?? null;
-      this.playingSongId = songId;
       useMusicPlaybackResumeStore().saveSession(songId, index, playbackStore.playSongTime);
       return true;
     },
@@ -533,20 +544,23 @@ const useMusicDataStore = defineStore("musicData", {
     },
 
     setPlaySongIndex(type: "next" | "prev") {
-      if (typeof $player === "undefined") return false;
       // Cancel AutoMix crossfade on manual skip
       const autoMix = getAutoMixEngine();
       if (autoMix.isHandoffActive()) {
         autoMix.cancelCrossfade();
       }
-      soundStop($player);
-      if (this.persistData.playSongMode !== "single") {
-        this.isLoadingSong = true;
-      }
       if (this.persistData.personalFmMode) {
+        if (typeof $player !== "undefined") soundStop($player);
         this.setPersonalFmData();
+        return true;
       } else {
         const listLength = this.persistData.playlists.length;
+        if (listLength === 0) {
+          this.clearPlaylists();
+          return false;
+        }
+
+        const activePlayer = typeof $player !== "undefined" ? $player : undefined;
         const listMode = this.persistData.playSongMode;
         let nextIndex = this.persistData.playSongIndex;
         if (listMode === "normal") {
@@ -555,38 +569,87 @@ const useMusicDataStore = defineStore("musicData", {
           nextIndex = Math.floor(Math.random() * listLength);
         } else if (listMode === "single") {
           console.log("单曲循环模式");
-          fadePlayOrPause($player, "play", this.persistData.playVolume);
+          const currentSong = this.persistData.playlists[this.persistData.playSongIndex];
+          if (activePlayer && SoundManager.getSongId(activePlayer) === Number(currentSong?.id)) {
+            soundStop(activePlayer);
+            fadePlayOrPause(activePlayer, "play", this.persistData.playVolume);
+            this.isLoadingSong = false;
+            this.setPlayState(true);
+            return true;
+          }
+          this.isLoadingSong = true;
+          this.setPlayState(true);
+          if (currentSong && typeof window.$getPlaySongData === "function") {
+            void window.$getPlaySongData(currentSong);
+          }
+          return !!currentSong;
         } else {
           $message.error(getLanguageData("playError"));
+          return false;
         }
-        if (listMode !== "single") {
-          if (nextIndex < 0) {
-            nextIndex = listLength - 1;
-          } else if (nextIndex >= listLength) {
-            nextIndex = 0;
-            soundStop($player);
-            fadePlayOrPause($player, "play", this.persistData.playVolume);
-          }
-          if (listLength > 1) {
-            soundStop($player);
-          }
-          this.commitPlaySongIndex(nextIndex);
-          // 已经切换到下一首/上一首歌曲，先清空旧歌词，等待新歌词加载
-          this.resetSongLyricState();
-          nextTick().then(() => {
+
+        if (nextIndex < 0) {
+          nextIndex = listLength - 1;
+        } else if (nextIndex >= listLength) {
+          nextIndex = 0;
+        }
+
+        const currentSong = this.persistData.playlists[this.persistData.playSongIndex];
+        if (nextIndex === this.persistData.playSongIndex) {
+          const activeSongId = activePlayer ? SoundManager.getSongId(activePlayer) : null;
+          if (activePlayer && activeSongId === Number(currentSong?.id)) {
+            soundStop(activePlayer);
+            fadePlayOrPause(activePlayer, "play", this.persistData.playVolume);
+            this.isLoadingSong = false;
             this.setPlayState(true);
-          });
+            return true;
+          }
+          this.isLoadingSong = true;
+          this.setPlayState(true);
+          if (currentSong && typeof window.$getPlaySongData === "function") {
+            void window.$getPlaySongData(currentSong);
+          }
+          return !!currentSong;
         }
+
+        if (activePlayer) soundStop(activePlayer);
+        this.isLoadingSong = true;
+        if (!this.commitPlaySongIndex(nextIndex)) {
+          this.isLoadingSong = false;
+          this.setPlayState(false);
+          return false;
+        }
+        // 已经切换到下一首/上一首歌曲，先清空旧歌词，等待新歌词加载
+        this.resetSongLyricState();
+        nextTick().then(() => {
+          if (this.persistData.playlists.length > 0) this.setPlayState(true);
+        });
+        return true;
       }
     },
 
     selectPlaySongByIndex(index: number) {
+      const autoMix = getAutoMixEngine();
+      if (autoMix.isHandoffActive()) autoMix.cancelCrossfade();
       if (
         !Number.isInteger(index) ||
         index < 0 ||
         index >= this.persistData.playlists.length ||
-        index === this.persistData.playSongIndex
+        (index === this.persistData.playSongIndex &&
+          SoundManager.getSongId(window.$player) ===
+            Number(this.persistData.playlists[index]?.id) &&
+          this.loadingStage !== "error")
       ) {
+        return;
+      }
+      if (index === this.persistData.playSongIndex) {
+        if (typeof $player !== "undefined") soundStop($player);
+        this.isLoadingSong = true;
+        this.setPlayState(true);
+        const song = this.persistData.playlists[index];
+        if (song && typeof window.$getPlaySongData === "function") {
+          void window.$getPlaySongData(song);
+        }
         return;
       }
       if (typeof $player !== "undefined") soundStop($player);
@@ -597,6 +660,9 @@ const useMusicDataStore = defineStore("musicData", {
     },
 
     addSongToPlaylists(value: SongData, play: boolean = true) {
+      const autoMix = getAutoMixEngine();
+      if (autoMix.isHandoffActive()) autoMix.cancelCrossfade();
+      cancelNativeQueuePrefill();
       const index = this.persistData.playlists.findIndex((o) => o.id === value.id);
       // 与「播放器实际加载的歌曲」(playingSongId) 比较，而不是 playlists[playSongIndex]：
       // playSong / playAllSong 等调用方会先用 setPlaylists 替换队列，旧索引在新队列中
@@ -631,6 +697,7 @@ const useMusicDataStore = defineStore("musicData", {
     },
 
     addSongToNext(value: SongData) {
+      cancelNativeQueuePrefill();
       this.persistData.playSongMode = "normal";
       const autoMix = getAutoMixEngine();
       let insertAfterIndex = this.persistData.playSongIndex;
@@ -661,29 +728,67 @@ const useMusicDataStore = defineStore("musicData", {
     },
 
     removeSong(index: number) {
-      if (typeof $player === "undefined") return false;
+      if (index < 0 || index >= this.persistData.playlists.length) return false;
+      cancelNativeQueuePrefill();
       const songId = this.persistData.playlists[index].id;
       const name = this.persistData.playlists[index].name;
       const removedCurrentSong = index === this.persistData.playSongIndex;
       if (index < this.persistData.playSongIndex) {
         this.persistData.playSongIndex--;
       } else if (index === this.persistData.playSongIndex) {
-        soundStop($player);
+        if (typeof $player !== "undefined") soundStop($player);
       }
       $message.success(name + " " + getLanguageData("removeSong"));
       this.persistData.playlists.splice(index, 1);
       this.preloadedSongIds.delete(songId);
+      if (this.persistData.playlists.length === 0) {
+        this.clearPlaylists();
+        return true;
+      }
       // Next index may have changed after removal
       getAudioPreloader().cleanup();
       if (this.persistData.playSongIndex >= this.persistData.playlists.length) {
         this.persistData.playSongIndex = 0;
-        soundStop($player);
+        if (typeof $player !== "undefined") soundStop($player);
       }
       if (removedCurrentSong) {
-        // 索引现在指向后继歌曲（由 watcher 接手加载），同步实际播放标识
-        this.playingSongId = this.persistData.playlists[this.persistData.playSongIndex]?.id ?? null;
+        // 索引现在指向后继歌曲（由 watcher 接手加载）；实际播放身份等待 load/adopt 提交。
+        this.playingSongId = null;
         this.resetPlaySongTime();
       } else this.checkpointPlaySongTime(true);
+      return true;
+    },
+
+    clearPlaylists() {
+      const autoMix = getAutoMixEngine();
+      if (autoMix.isHandoffActive()) {
+        autoMix.cancelCrossfade();
+      }
+      cancelNativeQueuePrefill();
+      getAudioPreloader().cleanup();
+
+      const activePlayer = typeof window !== "undefined" ? window.$player : undefined;
+      if (activePlayer instanceof NativeRustSound) {
+        activePlayer.clearPlaybackQueue();
+      }
+      if (SoundManager.getCurrentSound()) {
+        SoundManager.unload();
+      } else if (activePlayer) {
+        activePlayer.unload?.();
+        window.$player = undefined;
+      }
+
+      this.persistData.personalFmMode = false;
+      this.persistData.playlists = [];
+      this.persistData.playSongIndex = 0;
+      this.playingSongId = null;
+      this.playState = false;
+      this.isLoadingSong = false;
+      this.loadingStage = "idle";
+      this.preloadedSongIds.clear();
+      this.resetPlaySongTime();
+      this.resetSongLyricState();
+      return true;
     },
 
     setCatList(highquality: boolean = false) {

@@ -1487,19 +1487,35 @@ export class TransitionStateMachine {
         volume: 0,
       });
 
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Load timeout")), 30000);
-        incomingSound.once("load", () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-        incomingSound.once("loaderror", () => {
-          clearTimeout(timeout);
-          reject(new Error("Load error"));
-        });
-      });
+      // Until `this._incomingSound` is assigned below, cancelCrossfade() cannot
+      // see this sound — every abort path here must unload it directly or the
+      // full downloaded song buffer leaks.
+      const discardIncoming = (): void => {
+        incomingSound.stop();
+        incomingSound.unload();
+      };
 
-      if (!this._isTransitionActive(transitionId, "web") || this._state !== "crossfading") return;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("Load timeout")), 30000);
+          incomingSound.once("load", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+          incomingSound.once("loaderror", () => {
+            clearTimeout(timeout);
+            reject(new Error("Load error"));
+          });
+        });
+      } catch (err) {
+        discardIncoming();
+        throw err;
+      }
+
+      if (!this._isTransitionActive(transitionId, "web") || this._state !== "crossfading") {
+        discardIncoming();
+        return;
+      }
 
       if (this._settingsVolumeNorm) {
         const nextSongId = nextSong.id;
@@ -1520,11 +1536,17 @@ export class TransitionStateMachine {
         }
       }
 
-      if (!this._isTransitionActive(transitionId, "web") || this._state !== "crossfading") return;
+      if (!this._isTransitionActive(transitionId, "web") || this._state !== "crossfading") {
+        discardIncoming();
+        return;
+      }
 
       await incomingSound.ensureAudioGraph();
 
-      if (!this._isTransitionActive(transitionId, "web") || this._state !== "crossfading") return;
+      if (!this._isTransitionActive(transitionId, "web") || this._state !== "crossfading") {
+        discardIncoming();
+        return;
+      }
     }
 
     this._incomingSound = incomingSound;
@@ -1557,7 +1579,7 @@ export class TransitionStateMachine {
       }
     });
 
-    SoundManager.beginTransition(incomingSound);
+    SoundManager.beginTransition(incomingSound, nextSong.id);
     incomingSound.play();
     this._commitWebTransition(transitionId, incomingSound, nextIndex);
 
@@ -1890,7 +1912,9 @@ export class TransitionStateMachine {
   // ─── Cancel ────────────────────────────────────────────────────
 
   cancelCrossfade(): void {
-    if (this._state === "idle") return;
+    // Native handoff keeps a short hold after the visible state returns to
+    // idle. Manual song selection must still be able to clear that hold.
+    if (this._state === "idle" && !this.isHandoffActive()) return;
 
     if (IS_DEV) {
       console.log("TransitionStateMachine: Cancelling crossfade");

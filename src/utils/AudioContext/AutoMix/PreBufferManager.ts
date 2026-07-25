@@ -83,18 +83,26 @@ export class PreBufferManager {
         volume: 0,
       });
 
-      // Step 3: Wait for load
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Pre-buffer load timeout")), 30000);
-        sound.once("load", () => {
-          clearTimeout(timeout);
-          resolve();
+      // Step 3: Wait for load. On timeout/loaderror the sound keeps its
+      // download buffer alive until unloaded — release it before rethrowing,
+      // or every failed pre-buffer leaks a full song (~5-15MB).
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("Pre-buffer load timeout")), 30000);
+          sound.once("load", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+          sound.once("loaderror", () => {
+            clearTimeout(timeout);
+            reject(new Error("Pre-buffer load error"));
+          });
         });
-        sound.once("loaderror", () => {
-          clearTimeout(timeout);
-          reject(new Error("Pre-buffer load error"));
-        });
-      });
+      } catch (err) {
+        sound.stop();
+        sound.unload();
+        throw err;
+      }
 
       // Bail if state changed during load
       if (!canContinue()) {
@@ -130,7 +138,13 @@ export class PreBufferManager {
       }
 
       // Step 5: Initialize audio graph so GainNode is ready for crossfade
-      await sound.ensureAudioGraph();
+      try {
+        await sound.ensureAudioGraph();
+      } catch (err) {
+        sound.stop();
+        sound.unload();
+        throw err;
+      }
 
       // Final bail check
       if (!canContinue()) {

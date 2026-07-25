@@ -106,15 +106,26 @@ impl Player {
         tauri::async_runtime::spawn(async move {
             let forward_msg = |mut evt_msg: AudioThreadEventMessage<AudioThreadEvent>| {
                 evt_msg.seq = seq_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                let mut droppable = false;
                 if let Some(event) = &evt_msg.data {
                     update_shared_from_event(&shared_clone, event);
                     if should_buffer_poll_event(event) {
                         shared_clone.event_buf.lock().push(event.clone());
+                    } else {
+                        // High-rate FFT/lowFreq frames: the next frame supersedes
+                        // this one anyway, so skip the fallback global emit and
+                        // the pre-emptive clone it requires (an ~8KB copy at
+                        // 30 Hz for FFT during steady playback).
+                        droppable = true;
                     }
                 }
                 let channel = shared_clone.event_channel.lock().clone();
                 if let Some(channel) = channel {
-                    if channel.send(evt_msg.clone()).is_err() {
+                    if droppable {
+                        if channel.send(evt_msg).is_err() {
+                            *shared_clone.event_channel.lock() = None;
+                        }
+                    } else if channel.send(evt_msg.clone()).is_err() {
                         // The webview/channel went away (e.g. reload). Drop the
                         // stale sink so it self-heals on the next subscribe, and
                         // fall back to a global emit for this event.

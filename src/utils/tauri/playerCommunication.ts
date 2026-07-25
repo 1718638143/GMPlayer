@@ -303,16 +303,11 @@ function buildPlayerSettingsPayload(): PlayerSettingsPayload {
 
 function syncTrayEffectColor() {
   const color = getSite().songPicColor;
-  if (!color) return;
-
-  const match = color.match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
-  if (!match) return;
-
-  const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const base = isDark ? 30 : 240;
-  const r = Math.round(base * 0.85 + Number.parseInt(match[1], 10) * 0.15);
-  const g = Math.round(base * 0.85 + Number.parseInt(match[2], 10) * 0.15);
-  const b = Math.round(base * 0.85 + Number.parseInt(match[3], 10) * 0.15);
+  const base = 240;
+  const match = color?.match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  const r = match ? Math.round(base * 0.85 + Number.parseInt(match[1], 10) * 0.15) : base;
+  const g = match ? Math.round(base * 0.85 + Number.parseInt(match[2], 10) * 0.15) : base;
+  const b = match ? Math.round(base * 0.85 + Number.parseInt(match[3], 10) * 0.15) : base;
   windowManager.setWindowEffectColor("tray-popup", r, g, b, 200).catch(noop);
 }
 

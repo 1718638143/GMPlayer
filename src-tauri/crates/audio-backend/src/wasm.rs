@@ -268,6 +268,8 @@ impl WasmAudioBackend {
             Err(err) => {
                 return self.reply(
                     vec![AudioThreadEvent::LoadError {
+                        music_id: String::new(),
+                        load_request_id: None,
                         error: format!("invalid audio message JSON: {err}"),
                     }],
                     Vec::new(),
@@ -317,6 +319,7 @@ impl WasmAudioBackend {
             music_info: self.music_info.clone(),
             quality: self.quality.clone(),
             current_play_index: self.current_play_index,
+            load_request_id: None,
         }];
 
         events.push(self.sync_status_event());
@@ -373,6 +376,7 @@ impl WasmAudioBackend {
                     music_info: self.music_info.clone(),
                     quality: self.quality.clone(),
                     current_play_index: self.current_play_index,
+                    load_request_id: None,
                 },
                 self.sync_status_event(),
             ],
@@ -484,7 +488,14 @@ impl WasmAudioBackend {
 
     #[wasm_bindgen(js_name = "applyLoadError")]
     pub fn apply_load_error(&mut self, error: String) -> String {
-        self.reply(vec![AudioThreadEvent::LoadError { error }], Vec::new())
+        self.reply(
+            vec![AudioThreadEvent::LoadError {
+                music_id: self.current_music_id(),
+                load_request_id: None,
+                error,
+            }],
+            Vec::new(),
+        )
     }
 
     #[wasm_bindgen(js_name = "applyPlayError")]
@@ -663,6 +674,8 @@ impl WasmAudioBackend {
         let Some(song) = self.playlist.get(song_index).cloned() else {
             return self.reply(
                 vec![AudioThreadEvent::LoadError {
+                    music_id: String::new(),
+                    load_request_id: None,
                     error: format!("invalid playlist index: {song_index}"),
                 }],
                 Vec::new(),
@@ -672,6 +685,8 @@ impl WasmAudioBackend {
         let Some(src) = song.file_path().map(ToOwned::to_owned) else {
             return self.reply(
                 vec![AudioThreadEvent::LoadError {
+                    music_id: song.get_id(),
+                    load_request_id: None,
                     error: "web audio backend only supports local/filePath song entries".into(),
                 }],
                 Vec::new(),
@@ -696,6 +711,7 @@ impl WasmAudioBackend {
             vec![AudioThreadEvent::LoadingAudio {
                 music_id: music_id.clone(),
                 current_play_index: self.current_play_index,
+                load_request_id: None,
             }],
             vec![WebBackendEffect::LoadTrack {
                 src,

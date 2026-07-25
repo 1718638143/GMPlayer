@@ -1,6 +1,13 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd"
+))]
+use std::sync::OnceLock;
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
@@ -18,6 +25,14 @@ mod render;
 use config::{select_any_output_config, select_output_config, stable_stream_config};
 use platform::DEFAULT_QUEUE_BLOCKS;
 use render::{fill_output, CallbackState, OutputBlock};
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd"
+))]
+static OUTPUT_PROBE_HOST: OnceLock<Mutex<Option<cpal::Host>>> = OnceLock::new();
 
 // Depth of the buffer-recycling channel that returns spent mix blocks from the
 // CPAL callback back to the mixer for reuse. Sized a little above the data
@@ -433,11 +448,81 @@ fn join_output_thread_async(handle: thread::JoinHandle<()>) {
 pub fn selected_output_device_key(
     selector: &OutputDeviceSelector,
 ) -> Result<OutputDeviceKey, String> {
-    let host = cpal::default_host();
-    let device = resolve_output_device(&host, selector)?;
-    let (device_key, _) = output_device_key_and_config(&host, &device, selector.is_default());
-    Ok(device_key)
+    with_output_probe_host(|host| {
+        let device = resolve_output_device(host, selector)?;
+        let (device_key, _) = output_device_key_and_config(host, &device, selector.is_default());
+        Ok(device_key)
+    })
 }
+
+pub fn refreshed_output_device_key(
+    selector: &OutputDeviceSelector,
+) -> Result<OutputDeviceKey, String> {
+    refresh_output_probe_host();
+    selected_output_device_key(selector)
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd"
+))]
+fn with_output_probe_host<T>(
+    probe: impl FnOnce(&cpal::Host) -> Result<T, String>,
+) -> Result<T, String> {
+    // CPAL's PulseAudio host owns a pulseaudio-client reactor and Unix socket.
+    // pulseaudio-client 0.3 does not wake that reactor when its last handle is
+    // dropped, so creating a short-lived host for every device poll can leave
+    // an idle PipeWire-Pulse client behind indefinitely. Keep one probe host
+    // for the process; playback streams continue to own their separate hosts.
+    let cached_host = OUTPUT_PROBE_HOST.get_or_init(|| Mutex::new(None));
+    let mut cached_host = cached_host.lock();
+    if cached_host.is_none() {
+        let host = cpal::default_host();
+        if host.id() != cpal::HostId::PulseAudio {
+            return probe(&host);
+        }
+        *cached_host = Some(host);
+    }
+    probe(
+        cached_host
+            .as_ref()
+            .expect("PulseAudio probe host initialized"),
+    )
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd"
+))]
+fn refresh_output_probe_host() {
+    let host = OUTPUT_PROBE_HOST.get_or_init(|| Mutex::new(None));
+    *host.lock() = None;
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd"
+)))]
+fn with_output_probe_host<T>(
+    probe: impl FnOnce(&cpal::Host) -> Result<T, String>,
+) -> Result<T, String> {
+    let host = cpal::default_host();
+    probe(&host)
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd"
+)))]
+fn refresh_output_probe_host() {}
 
 fn resolve_output_device(
     host: &cpal::Host,

@@ -44,7 +44,14 @@ export type AudioThreadMessage =
   | { type: "prevSong" }
   | { type: "nextSong" }
   | { type: "nextSongGapless" }
-  | { type: "setPlaylist"; songs: SongData[]; windowed?: boolean }
+  | {
+      type: "setPlaylist";
+      songs: SongData[];
+      windowed?: boolean;
+      playIndex?: number;
+      initialPosition?: number;
+      loadRequestId?: number;
+    }
   | { type: "setVolume"; volume: number }
   | { type: "setVolumeRelative"; volume: number }
   | { type: "setAudioOutput"; name: string }
@@ -167,9 +174,13 @@ export type AudioThreadEvent =
         musicInfo: DisplayAudioInfo;
         quality: AudioQuality;
         currentPlayIndex: number;
+        loadRequestId?: number | null;
       };
     }
-  | { type: "loadingAudio"; data: { musicId: string; currentPlayIndex: number } }
+  | {
+      type: "loadingAudio";
+      data: { musicId: string; currentPlayIndex: number; loadRequestId?: number | null };
+    }
   | { type: "audioPlayFinished"; data: { musicId: string } }
   | {
       type: "syncStatus";
@@ -197,7 +208,10 @@ export type AudioThreadEvent =
       type: "seekFailed";
       data: { requestId?: number | null; position: number; error: string };
     }
-  | { type: "loadError"; data: { error: string } }
+  | {
+      type: "loadError";
+      data: { error: string; musicId?: string; loadRequestId?: number | null };
+    }
   | { type: "playError"; data: { error: string } }
   | { type: "volumeChanged"; data: { volume: number } }
   | {
@@ -549,15 +563,20 @@ function newCallbackId(): string {
  * audioSendMsg({ type: "setVolume", volume: 0.8 });
  * ```
  */
+let audioSendChain: Promise<void> = Promise.resolve();
+
 export function audioSendMsg(msg: AudioThreadMessage): Promise<void> {
   if (!isTauri()) return Promise.resolve();
-  return window
-    .__TAURI__!.core.invoke<void>("audio_send_msg", {
-      msg: { callbackId: newCallbackId(), data: msg },
-    })
+  audioSendChain = audioSendChain
+    .then(() =>
+      window.__TAURI__!.core.invoke<void>("audio_send_msg", {
+        msg: { callbackId: newCallbackId(), data: msg },
+      }),
+    )
     .catch((err) => {
       console.error("[audioBridge] audio_send_msg failed", msg.type, err);
     });
+  return audioSendChain;
 }
 
 /** Backward-compat alias — both forms now return Promise<void>. */

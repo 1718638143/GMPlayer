@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { ref } from "vue";
+import { shallowRef, ref } from "vue";
 import getLanguageData from "@/utils/getLanguageData";
 import {
   preprocessLyrics,
@@ -42,7 +42,10 @@ function createInitialSongLyric(): SongLyric {
 }
 
 export const useMusicLyricStore = defineStore("musicLyric", () => {
-  const songLyric = ref<SongLyric>(createInitialSongLyric());
+  // Lyric payloads are replaced wholesale per track and every consumer reads
+  // them through toRaw()/identity watches. shallowRef keeps that contract while
+  // skipping deep-Proxy wrapping of thousands of line/word objects per song.
+  const songLyric = shallowRef<SongLyric>(createInitialSongLyric());
   const playSongLyricIndex = ref(-1);
 
   function resetSongLyricState() {
@@ -117,7 +120,6 @@ export const useMusicLyricStore = defineStore("musicLyric", () => {
       console.timeEnd("预处理歌词");
 
       songLyric.value = value;
-      console.log("歌词数据已存储到store:", songLyric.value);
     } catch (error) {
       $message.error(getLanguageData("getLrcError"));
       console.error(getLanguageData("getLrcError"), error);

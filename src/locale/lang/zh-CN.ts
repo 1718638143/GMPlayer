@@ -359,6 +359,7 @@ const messages: Record<string, unknown> = {
     queue: {
       nowPlaying: "正在播放",
       playingNext: "接下来播放",
+      clear: "清空",
     },
     loading: {
       resolving: "获取音频资源中",
