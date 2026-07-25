@@ -450,26 +450,6 @@ function preventRefresh(event: KeyboardEvent) {
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  .tray-popup {
-    --popup-bg: rgba(30, 30, 30, 0.92);
-    --popup-border: rgba(255, 255, 255, 0.08);
-    --text-primary: rgba(255, 255, 255, 0.9);
-    --text-secondary: rgba(255, 255, 255, 0.5);
-    --icon-color: rgba(255, 255, 255, 0.45);
-    --divider: rgba(255, 255, 255, 0.06);
-    --hover-bg: rgba(255, 255, 255, 0.06);
-    --ctrl-hover-bg: rgba(255, 255, 255, 0.08);
-    --ctrl-play-bg: rgba(255, 255, 255, 0.08);
-    --ctrl-play-hover: rgba(255, 255, 255, 0.14);
-    --cover-bg: rgba(255, 255, 255, 0.05);
-    --quit-hover: rgba(255, 70, 70, 0.12);
-    --quit-color: rgba(255, 100, 100, 0.85);
-    --slider-track: rgba(255, 255, 255, 0.13);
-    --slider-thumb: rgba(255, 255, 255, 0.86);
-  }
-}
-
 .song-section,
 .ctrl-btn,
 .volume-icon,

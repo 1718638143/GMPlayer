@@ -1,11 +1,10 @@
 <template>
   <LayoutGroup id="mobile-player-layout">
     <Transition name="show">
-      <n-card
+      <div
         v-show="music.getPlaylists[0] && music.showPlayBar"
         class="player"
         data-mobile-player-bg
-        content-style="padding: 0"
         @click.stop="handleMiniPlayerClick"
         @touchstart.passive="handleMiniTouchStart"
         @touchmove.passive="handleMiniTouchMove"
@@ -268,7 +267,7 @@
             </div>
           </div>
         </div>
-      </n-card>
+      </div>
     </Transition>
     <!-- 播放列表 -->
     <PlayListDrawer ref="PlayListDrawerRef" />
@@ -312,6 +311,7 @@ import {
   getAutoMixEngine,
   getAudioPreloader,
   isNativeAdvanceHoldActiveFor,
+  SoundManager,
 } from "@/utils/AudioContext";
 import { getSongPlayingTime } from "@/utils/timeTools";
 import { useRouter } from "vue-router";
@@ -337,7 +337,7 @@ import AllArtists from "@/components/DataList/AllArtists.vue";
 import OverflowMarquee from "@/components/Common/OverflowMarquee.vue";
 import BigPlayer from "./BigPlayer/index.vue";
 import "vue-slider-component/theme/default.css";
-import { watch } from "vue";
+import { shallowRef, watch } from "vue";
 import { parseLyricData as parseLyric } from "@/utils/LyricsProcessor";
 import { lyricFetcher } from "@/utils/lyricFetcher";
 
@@ -523,37 +523,39 @@ const handleMiniTouchEnd = () => {
 const showListenTogetherModal = ref(false);
 
 // 音频标签
-const player = ref(null);
+// Audio controller identity must stay raw: SoundManager compares instances by reference.
+// A normal ref deeply proxies class instances and makes the active sound look stale.
+const player = shallowRef(null);
 
 // Async generation tracker — each getPlaySongData call increments this.
 // Stale async callbacks (URL fetches, availability checks) compare their captured
 // generation against the current value and bail out if a newer request superseded them.
 let _songLoadGeneration = 0;
+const failedAutoSkipSongIds = new Set();
+let failedAutoSkipQueueKey = "";
 
 // 获取歌曲播放数据
-const getPlaySongData = async (data, level = setting.songLevel) => {
-  const generation = ++_songLoadGeneration;
+const getPlaySongData = async (data, level = setting.songLevel, requestedGeneration = null) => {
+  const generation = requestedGeneration ?? ++_songLoadGeneration;
+  if (generation !== _songLoadGeneration) return;
   try {
     if (!data || !data.id) {
       console.error("[Player] getPlaySongData called with invalid data:", data);
+      if (generation === _songLoadGeneration && !music.getPlaySongData) {
+        music.isLoadingSong = false;
+        music.loadingStage = "idle";
+        music.setPlayState(false);
+      }
       return;
     }
     const { id, fee, pc } = data;
+    const isCurrentRequest = () =>
+      generation === _songLoadGeneration && Number(music.getPlaySongData?.id) === Number(id);
     console.log(
       `[Player] getPlaySongData called for ID: ${id}, Fee: ${fee}, PC: ${pc}, Level: ${level}`,
     );
 
-    // If AutoMix is crossfading, it already handles sound creation — only fetch lyrics
     const autoMix = getAutoMixEngine();
-    if (autoMix.isHandoffActive()) {
-      console.log("[Player] AutoMix crossfade active, only fetching lyrics");
-      // Sync player ref to the incoming sound set by AutoMix
-      if (window.$player) {
-        player.value = window.$player;
-      }
-      fetchAndParseLyric(id);
-      return;
-    }
 
     // Backend-initiated native advance (queue-window prefill): the active
     // NativeRustSound is already playing this song — reuse it instead of
@@ -565,8 +567,29 @@ const getPlaySongData = async (data, level = setting.songLevel) => {
         player.value = window.$player;
       }
       music.isLoadingSong = false;
+      music.loadingStage = "idle";
       fetchAndParseLyric(id);
       return;
+    }
+
+    // AutoMix owns only its actual incoming/current song. Manual selection of
+    // a different song during finishing/handoff must cancel the transition and
+    // continue through normal URL resolution.
+    if (autoMix.isHandoffActive()) {
+      const requestedSongId = Number(id);
+      const activeSoundSongId = SoundManager.getSongId(window.$player);
+      const incomingSongId = Number(music.autoMixState.incomingSongId);
+      if (requestedSongId === activeSoundSongId || requestedSongId === incomingSongId) {
+        console.log("[Player] AutoMix handoff owns requested song, only fetching lyrics");
+        if (window.$player) {
+          player.value = window.$player;
+        }
+        music.isLoadingSong = false;
+        music.loadingStage = "idle";
+        fetchAndParseLyric(id);
+        return;
+      }
+      autoMix.cancelCrossfade();
     }
 
     // Check audio preloader — if the next song was preloaded, use it directly.
@@ -577,32 +600,64 @@ const getPlaySongData = async (data, level = setting.songLevel) => {
     const backendAvailable = isAudioBackendRuntimeAvailable();
     const preloadedSound = !backendAvailable ? preloader.consume(id) : null;
     if (preloadedSound) {
+      if (!isCurrentRequest()) {
+        preloadedSound.unload();
+        return;
+      }
       console.log(`[Player] Using preloaded audio for: ${id}`);
-      player.value = createSound("", true, preloadedSound);
+      player.value = createSound("", true, preloadedSound, {
+        songId: id,
+      });
       // Preloaded sound is already loaded — 'load' event won't fire again,
       // so clear loading state immediately to avoid stuck spinner.
       music.isLoadingSong = false;
+      music.loadingStage = "idle";
       fetchAndParseLyric(id);
       return;
     }
 
     // Unified URL resolution (NCM + trial detection + UNM fallback + kuwo proxy)
     const result = await resolveSongUrl({ id, fee, pc, name: data.name }, level);
-    if (generation !== _songLoadGeneration) return; // stale check
+    if (!isCurrentRequest()) return;
 
     if (result) {
+      failedAutoSkipSongIds.clear();
+      failedAutoSkipQueueKey = "";
       console.log(`[Player] Creating sound instance with ${result.source} URL: ${result.url}`);
-      player.value = createSound(result.url);
+      player.value = createSound(result.url, true, undefined, {
+        songId: id,
+      });
     } else {
       console.warn(`[Player] No URL resolved for ${id}`);
       $message.warning(t("general.message.playError"));
-      music.setPlaySongIndex("next");
+      const queueKey = music.getPlaylists.map((song) => Number(song.id)).join(",");
+      if (queueKey !== failedAutoSkipQueueKey) {
+        failedAutoSkipSongIds.clear();
+        failedAutoSkipQueueKey = queueKey;
+      }
+      failedAutoSkipSongIds.add(Number(id));
+      const queueSongIds = new Set(music.getPlaylists.map((song) => Number(song.id)));
+      const allQueueSongsFailed =
+        queueSongIds.size === 0 ||
+        [...queueSongIds].every((songId) => failedAutoSkipSongIds.has(songId));
+      if (allQueueSongsFailed) {
+        music.isLoadingSong = false;
+        music.loadingStage = "error";
+        music.setPlayState(false);
+      } else {
+        music.setPlaySongIndex("next");
+      }
     }
 
     // 获取歌词
-    fetchAndParseLyric(id);
+    if (isCurrentRequest()) fetchAndParseLyric(id);
   } catch (err) {
-    if (generation !== _songLoadGeneration) return;
+    if (
+      generation !== _songLoadGeneration ||
+      Number(music.getPlaySongData?.id) !== Number(data?.id)
+    ) {
+      return;
+    }
     console.error("[Player] Error in getPlaySongData:", err);
     if (music.getPlaylists[0] && music.getPlayState) {
       $message.warning(t("general.message.playError"));
@@ -708,12 +763,8 @@ const patternClick = (val) => {
 };
 
 // 歌曲更换事件
-const songChange = debounce(500, (val) => {
-  if (val === undefined) {
-    window.document.title = sessionStorage.getItem("siteTitle") ?? import.meta.env.VITE_SITE_TITLE;
-  }
-  // 加载数据
-  getPlaySongData(val);
+const songChange = debounce(500, (val, generation) => {
+  getPlaySongData(val, setting.songLevel, generation);
 });
 
 const setupPlayerCommunication = () => {
@@ -731,7 +782,8 @@ onMounted(() => {
   window.$getPlaySongData = getPlaySongData;
   // 获取音乐数据
   if (music.getPlaylists[0] && music.getPlaySongData) {
-    getPlaySongData(music.getPlaySongData);
+    const generation = ++_songLoadGeneration;
+    getPlaySongData(music.getPlaySongData, setting.songLevel, generation);
   }
 
   // Tauri: wire up tray control listeners + state broadcasting
@@ -752,6 +804,15 @@ watch(
     // 以歌曲 ID 判定是否切歌：队列被整体替换时对象引用必然变化，
     // 但同一首歌不应重新加载；不同的歌（即使处于相同索引）必须加载。
     if (val?.id !== oldVal?.id) {
+      const generation = ++_songLoadGeneration;
+      songChange.cancel({ upcomingOnly: true });
+      if (!val?.id) {
+        failedAutoSkipSongIds.clear();
+        failedAutoSkipQueueKey = "";
+        player.value = null;
+        window.document.title =
+          sessionStorage.getItem("siteTitle") ?? import.meta.env.VITE_SITE_TITLE;
+      }
       // During AutoMix crossfade, don't reset time — adoptIncomingSound handles it.
       // Resetting here causes duration=0 because the incoming sound's play() is async
       // and checkAudioTime only updates when playing() returns true.
@@ -759,7 +820,7 @@ watch(
       if (!autoMix.isHandoffActive()) {
         music.setPlaySongTime({ currentTime: 0, duration: 0 });
       }
-      songChange(val);
+      if (val?.id) songChange(val, generation);
       broadcastPlayerState();
 
       // 一起听歌：发送切歌命令（房主和房客均可）
@@ -786,6 +847,7 @@ watch(
       }
     }
   },
+  { flush: "sync" },
 );
 
 // Tauri: cover palette extraction completes asynchronously after song metadata changes.
@@ -815,8 +877,27 @@ watch(
   () => music.getPlayState,
   (val) => {
     console.log(`[Player] Play state changed to: ${val}. Player instance:`, player.value);
+    const currentSongId = Number(music.getPlaySongData?.id);
+    if (val && (!Number.isFinite(currentSongId) || currentSongId <= 0)) {
+      music.setPlayState(false);
+      return;
+    }
     if (window.$player && player.value !== window.$player) {
       player.value = window.$player;
+    }
+
+    if (val && player.value && SoundManager.getSongId(player.value) !== currentSongId) {
+      console.warn("[Player] Refusing to resume a sound bound to another song", {
+        currentSongId,
+        soundSongId: SoundManager.getSongId(player.value),
+      });
+      if (!music.isLoadingSong && music.getPlaySongData) {
+        music.isLoadingSong = true;
+        const generation = ++_songLoadGeneration;
+        songChange.cancel({ upcomingOnly: true });
+        void getPlaySongData(music.getPlaySongData, setting.songLevel, generation);
+      }
+      return;
     }
 
     let nativePlaybackHandled = false;
@@ -1051,6 +1132,8 @@ watch(
   // 让 sidebar · 播放栏 · 队列 连成同一块连续的中性外壳。
   --player-surface-bg: var(--app-shell-bg, var(--layout-bg, #fff));
   --player-surface-border: var(--acrylic-border, rgba(0, 0, 0, 0.06));
+  --player-time-chip-bg: var(--app-shell-bg, var(--layout-bg, #fff));
+  --player-time-chip-border: var(--n-border-color);
   --player-data-edge-inset: 14px;
   --player-control-edge-inset: 14px;
   --player-slider-edge-inset: 0px;
@@ -1062,12 +1145,12 @@ watch(
   width: calc(100% - var(--sidebar-width, 240px) - var(--player-right-inset, 0px));
   z-index: 2;
   transition:
-    left 0.3s ease,
-    width 0.3s ease,
+    left 0.22s ease-in-out,
+    width 0.22s ease-in-out,
     opacity 0.18s ease,
     translate 0.22s ease;
 
-  // Acrylic background — override Naive UI card bg
+  // Default surface for Web and mobile runtimes.
   background-color: var(
     --player-surface-bg,
     var(--app-shell-bg, var(--layout-bg, #fff))
@@ -1093,6 +1176,7 @@ watch(
     --player-slider-edge-inset: 0px;
     background-color: transparent !important;
     border: none !important;
+    border-top: 1px solid var(--mobile-mini-player-surface-border, var(--player-surface-border)) !important;
     outline: none !important;
     box-shadow: none;
     overflow: visible !important;
@@ -1112,12 +1196,6 @@ watch(
       transform: translate3d(0, var(--mobile-mini-player-mask-y, 0px), 0);
       pointer-events: none;
       will-change: opacity, transform;
-    }
-
-    :deep(.n-card__content) {
-      position: static;
-      border: none !important;
-      outline: none !important;
     }
   }
 
@@ -1148,8 +1226,8 @@ watch(
       span {
         font-size: 12px;
         white-space: nowrap;
-        background-color: var(--n-color);
-        outline: 1px solid var(--n-border-color);
+        background-color: var(--player-time-chip-bg);
+        outline: 1px solid var(--player-time-chip-border);
         padding: 2px 8px;
         border-radius: var(--radius-pill);
         margin: 0 2px;
@@ -1164,8 +1242,8 @@ watch(
       .slider-tooltip {
         font-size: 12px;
         white-space: nowrap;
-        background-color: var(--n-color);
-        outline: 1px solid var(--n-border-color);
+        background-color: var(--player-time-chip-bg);
+        outline: 1px solid var(--player-time-chip-border);
         padding: 2px 8px;
         border-radius: var(--radius-pill);
       }

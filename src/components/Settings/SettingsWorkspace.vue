@@ -369,6 +369,7 @@ const handleAction = (key: string) => {
 
 <style lang="scss" scoped>
 .settings-workspace {
+  container: settings-workspace / inline-size;
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -499,7 +500,7 @@ const handleAction = (key: string) => {
   }
 }
 
-@media (max-width: 640px) {
+@container settings-workspace (max-width: 640px) {
   .custom-heading {
     flex-direction: column;
   }

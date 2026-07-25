@@ -19,11 +19,21 @@
   >
     <n-drawer-content :native-scrollbar="false" closable>
       <template #header>
-        <div class="text">
-          <n-text class="name">{{ $t("general.name.playlists") }}</n-text>
-          <n-text class="num" :depth="3" v-if="music.getPlaylists.length > 0">
-            {{ $t("general.name.songSize", { size: music.getPlaylists.length }) }}
-          </n-text>
+        <div class="playlist-header">
+          <div class="text">
+            <n-text class="name">{{ $t("general.name.playlists") }}</n-text>
+            <n-text class="num" :depth="3" v-if="music.getPlaylists.length > 0">
+              {{ $t("general.name.songSize", { size: music.getPlaylists.length }) }}
+            </n-text>
+          </div>
+          <button
+            v-if="music.getPlaylists.length"
+            class="playlist-clear"
+            type="button"
+            @click="music.clearPlaylists()"
+          >
+            {{ $t("player.queue.clear") }}
+          </button>
         </div>
       </template>
       <Transition mode="out-in">
@@ -238,7 +248,17 @@ onBeforeUnmount(() => {
     opacity: 0;
   }
 
+  .playlist-header {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
   .text {
+    min-width: 0;
     display: flex;
     align-items: center;
 
@@ -374,6 +394,28 @@ onBeforeUnmount(() => {
           background-color: var(--n-border-color);
         }
       }
+    }
+  }
+
+  .playlist-clear {
+    flex: 0 0 auto;
+    padding: 5px 9px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: var(--n-text-color-3);
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition:
+      color 0.16s ease,
+      background-color 0.16s ease;
+
+    &:hover,
+    &:focus-visible {
+      color: var(--n-text-color);
+      background-color: color-mix(in srgb, var(--n-text-color) 9%, transparent);
+      outline: none;
     }
   }
 }

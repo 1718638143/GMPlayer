@@ -554,7 +554,7 @@ watch(
   }
 }
 
-@media (max-width: 640px) {
+@container settings-workspace (max-width: 640px) {
   .settings-panel {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);

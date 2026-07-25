@@ -199,6 +199,14 @@
                 </span>
               </div>
             </div>
+            <button
+              v-if="music.getPlaylists.length"
+              class="queue-clear"
+              type="button"
+              @click="music.clearPlaylists()"
+            >
+              {{ $t("player.queue.clear") }}
+            </button>
           </div>
 
           <n-virtual-list
@@ -1081,8 +1089,35 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
 .mobile-queue-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
   margin-bottom: 8px;
+}
+
+.queue-clear {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+  opacity: 0.72;
+  transition:
+    opacity 0.16s ease,
+    background-color 0.16s ease,
+    border-color 0.16s ease;
+
+  &:active,
+  &:focus-visible {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+    outline: none;
+  }
 }
 
 .queue-title {

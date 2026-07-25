@@ -389,6 +389,7 @@ watch(
       .title {
         display: flex;
         flex-direction: column;
+        min-width: 0;
         margin-top: 0;
 
         .detail-kind {
@@ -401,10 +402,14 @@ watch(
         }
 
         .name {
-          max-width: 780px;
+          display: -webkit-box;
+          max-width: min(780px, 100%);
+          overflow: hidden;
           font-size: clamp(32px, 5vw, 56px);
           font-weight: 800;
           line-height: 1.06;
+          overflow-wrap: anywhere;
+          -webkit-box-orient: vertical;
           -webkit-line-clamp: 2;
           line-clamp: 2;
         }

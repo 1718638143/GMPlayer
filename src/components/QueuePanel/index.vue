@@ -23,9 +23,14 @@
     <section class="queue-list-section">
       <div class="queue-list-header">
         <span>{{ $t("player.queue.playingNext") }}</span>
-        <span v-if="music.getPlaylists.length" class="queue-count">
-          {{ $t("general.name.songSize", { size: music.getPlaylists.length }) }}
-        </span>
+        <div v-if="music.getPlaylists.length" class="queue-header-actions">
+          <span class="queue-count">
+            {{ $t("general.name.songSize", { size: music.getPlaylists.length }) }}
+          </span>
+          <button class="queue-clear" type="button" @click="music.clearPlaylists()">
+            {{ $t("player.queue.clear") }}
+          </button>
+        </div>
       </div>
       <n-virtual-list
         v-if="music.getPlaylists.length"
@@ -177,10 +182,18 @@ const changeIndex = (index) => {
 
 .queue-list-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   padding: 14px 14px 8px;
+}
+
+.queue-header-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .queue-count {
@@ -188,6 +201,28 @@ const changeIndex = (index) => {
   font-size: 11px;
   font-weight: 500;
   color: var(--n-text-color-3);
+}
+
+.queue-clear {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--n-text-color-3);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    background-color 0.16s ease;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--n-text-color);
+    background-color: color-mix(in srgb, var(--n-text-color) 9%, transparent);
+    outline: none;
+  }
 }
 
 .queue-scroll {

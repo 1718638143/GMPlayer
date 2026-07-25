@@ -6,7 +6,9 @@
         <div class="detail-stats">
           <div class="num">
             <n-icon :depth="3" :component="MusicList" />
-            <n-text>{{ $t("general.name.songSize", { size: music.getPlayHistory.length }) }}</n-text>
+            <n-text>{{
+              $t("general.name.songSize", { size: music.getPlayHistory.length })
+            }}</n-text>
           </div>
           <div class="num">
             <n-icon :depth="3" :component="Time" />
