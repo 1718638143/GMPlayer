@@ -1,7 +1,7 @@
 <template>
   <div class="songs">
     <div class="song-panel">
-      <DataLists :listData="searchData" :loading="loading" />
+      <DataLists :listData="searchData" :loading="loading" virtual />
     </div>
     <Pagination
       v-if="searchData[0]"
