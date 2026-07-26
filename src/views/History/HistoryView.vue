@@ -17,7 +17,13 @@
         </div>
       </div>
       <div class="song-panel">
-        <DataLists :listData="music.getPlayHistory" />
+        <DataLists
+          :listData="music.getPlayHistory"
+          virtual
+          virtual-height="min(68vh, 760px)"
+          :virtual-item-size="54"
+          :virtual-threshold="40"
+        />
       </div>
     </template>
     <div class="empty-state" v-else>

@@ -38,7 +38,7 @@
         <span>{{ cloudSpace[1] }} G</span>
       </div>
     </div>
-    <DataLists :listData="cloudData" />
+    <DataLists :listData="cloudData" virtual />
     <Pagination
       :totalCount="totalCount"
       :pageNumber="pageNumber"
