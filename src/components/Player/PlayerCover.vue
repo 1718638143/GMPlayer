@@ -406,22 +406,22 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .player-cover-container {
-  /* 高度预算：控件区约 15rem + 纵向 gap 2rem + 顶部关闭手柄余量 2.5rem */
+  /* 高度预算：控件区约 15rem + 纵向 gap 2rem + 上下对称 padding 各 2.5rem */
   --cover-controls-budget: 19.5rem;
-  --cover-size: max(10rem, min(50vh, 38vw, calc(100vh - var(--cover-controls-budget) - 2.5rem)));
+  --cover-size: max(10rem, min(50vh, 38vw, calc(100vh - var(--cover-controls-budget) - 5rem)));
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2rem;
-  /* 关闭手柄绝对定位在封面上方出画区，这里预留其高度，
-     避免矮窗口下被居中布局顶出视口 */
-  padding-top: 2.5rem;
+  /* 顶部为绝对定位的关闭手柄保留出画余量（矮窗口不被居中布局顶出视口）；
+     底部等量 padding 保持视觉中心对称 */
+  padding: 2.5rem 0;
 
   @media screen and (max-height: 768px) {
-    --cover-size: max(9rem, min(45vh, 38vw, calc(100vh - var(--cover-controls-budget) - 2rem)));
+    --cover-size: max(9rem, min(45vh, 38vw, calc(100vh - var(--cover-controls-budget) - 4.5rem)));
     gap: 1.5rem;
-    padding-top: 2.25rem;
+    padding: 2.25rem 0;
   }
 
   .cover-stage {
