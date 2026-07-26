@@ -234,14 +234,42 @@ use vocal::analyze_vocal_activity;
 
 // ─── Main Analysis Entry Point ─────────────────────────────────────
 
+/// Cap for the duration-hint preallocation (in mono samples): 64M samples
+/// ≈ 256 MiB of f32, covering ~24 min @ 44.1 kHz or ~11 min @ 96 kHz. A
+/// corrupt container header claiming hours must not translate into a giant
+/// blind allocation — tracks longer than the cap simply fall back to doubling
+/// growth beyond it, which is never worse than the old un-hinted behavior.
+const MONO_PREALLOC_MAX_SAMPLES: usize = 64 << 20;
+
+/// Mono-sample capacity estimate from the container duration hint, with a
+/// small headroom margin (~1.6% + 1024) so hints that undershoot slightly do
+/// not push the buffer into a full doubling reallocation for the excess.
+fn mono_capacity_hint(duration_hint: Option<f32>, sample_rate: u32) -> usize {
+    let Some(duration) = duration_hint.filter(|d| d.is_finite() && *d > 0.0) else {
+        return 0;
+    };
+    let frames = (duration as f64 * sample_rate as f64).ceil() as usize;
+    (frames + frames / 64 + 1024).min(MONO_PREALLOC_MAX_SAMPLES)
+}
+
 fn decode_audio_to_mono(audio_data: Vec<u8>) -> Result<(Vec<f32>, u32, f32), String> {
-    let cursor = Cursor::new(audio_data);
-    let decoder = Decoder::new(cursor).map_err(|e| format!("decode audio: {e}"))?;
+    decode_source_to_mono(Cursor::new(audio_data))
+}
+
+fn decode_source_to_mono<R>(input: R) -> Result<(Vec<f32>, u32, f32), String>
+where
+    R: std::io::Read + std::io::Seek + Send + Sync + 'static,
+{
+    let decoder = Decoder::new(input).map_err(|e| format!("decode audio: {e}"))?;
     let channels = decoder.channels().get() as usize;
     let sample_rate = decoder.sample_rate().get();
     let duration_hint = decoder.total_duration().map(|d| d.as_secs_f32());
 
-    let mut mono = Vec::new();
+    // Preallocate from the duration hint: growing a multi-minute track by
+    // push-doubling briefly holds the old and new buffers at every doubling
+    // (up to ~3× the final size at the last one), which alone accounted for
+    // most of the transient RES spike during AutoMix prepare.
+    let mut mono = Vec::with_capacity(mono_capacity_hint(duration_hint, sample_rate));
     let mut frame_sum = 0.0f32;
     let mut frame_channel = 0usize;
 
@@ -396,8 +424,12 @@ pub fn analyze_audio_file(
     path: impl AsRef<Path>,
     analyze_bpm: bool,
 ) -> Result<TrackAnalysis, String> {
-    let audio_data = std::fs::read(path.as_ref()).map_err(|e| format!("read audio source: {e}"))?;
-    let (samples, sample_rate, duration) = decode_audio_to_mono(audio_data)?;
+    // Stream the compressed file from disk instead of fs::read-ing it whole:
+    // the encoded bytes would otherwise stay resident (owned by the decoder's
+    // Cursor) for the entire full-track decode, adding the whole file size on
+    // top of the PCM buffer at the peak.
+    let file = std::fs::File::open(path.as_ref()).map_err(|e| format!("read audio source: {e}"))?;
+    let (samples, sample_rate, duration) = decode_source_to_mono(std::io::BufReader::new(file))?;
     Ok(analyze_mono_samples(
         &samples,
         sample_rate,
@@ -408,4 +440,94 @@ pub fn analyze_audio_file(
 
 pub fn analyze_audio_source(req: AutomixAnalyzeSourceRequest) -> Result<TrackAnalysis, String> {
     analyze_audio_file(req.source, req.analyze_bpm.unwrap_or(true))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// Minimal 16-bit PCM WAV with a 220 Hz sine, `frames` frames per channel.
+    fn wav_bytes(frames: usize, channels: u16, sample_rate: u32) -> Vec<u8> {
+        let data_len = frames * channels as usize * 2;
+        let mut out = Vec::with_capacity(44 + data_len);
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&((36 + data_len) as u32).to_le_bytes());
+        out.extend_from_slice(b"WAVE");
+        out.extend_from_slice(b"fmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&channels.to_le_bytes());
+        out.extend_from_slice(&sample_rate.to_le_bytes());
+        out.extend_from_slice(&(sample_rate * channels as u32 * 2).to_le_bytes());
+        out.extend_from_slice(&(channels * 2).to_le_bytes());
+        out.extend_from_slice(&16u16.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&(data_len as u32).to_le_bytes());
+        for i in 0..frames {
+            let t = i as f32 / sample_rate as f32;
+            let v = ((std::f32::consts::TAU * 220.0 * t).sin() * 20_000.0) as i16;
+            for _ in 0..channels {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn file_and_bytes_decode_paths_are_identical() {
+        let bytes = wav_bytes(44_100, 2, 44_100);
+
+        let (mono_bytes, rate_bytes, duration_bytes) =
+            decode_audio_to_mono(bytes.clone()).expect("bytes decode");
+
+        let mut tmp = tempfile::NamedTempFile::new().expect("temp file");
+        tmp.write_all(&bytes).expect("write wav");
+        tmp.flush().expect("flush wav");
+        let file = std::fs::File::open(tmp.path()).expect("open wav");
+        let (mono_file, rate_file, duration_file) =
+            decode_source_to_mono(std::io::BufReader::new(file)).expect("file decode");
+
+        assert_eq!(rate_bytes, rate_file);
+        assert_eq!(duration_bytes, duration_file);
+        assert_eq!(mono_bytes, mono_file);
+    }
+
+    #[test]
+    fn mono_buffer_is_preallocated_from_duration_hint() {
+        let frames = 2 * 44_100;
+        let (mono, rate, _) = decode_audio_to_mono(wav_bytes(frames, 2, 44_100)).expect("decode");
+
+        assert_eq!(rate, 44_100);
+        assert_eq!(mono.len(), frames);
+        assert!(mono.capacity() >= mono.len());
+        // With the hint-based preallocation, capacity must track the frame
+        // count closely; the old push-doubling growth would land on the next
+        // power of two (131072) and fail this bound.
+        assert!(
+            mono.capacity() <= mono.len() + mono.len() / 32 + 4096,
+            "capacity {} too far above len {}",
+            mono.capacity(),
+            mono.len()
+        );
+    }
+
+    #[test]
+    fn mono_capacity_hint_is_bounded_and_defensive() {
+        assert_eq!(mono_capacity_hint(None, 44_100), 0);
+        assert_eq!(mono_capacity_hint(Some(0.0), 44_100), 0);
+        assert_eq!(mono_capacity_hint(Some(f32::NAN), 44_100), 0);
+        assert_eq!(mono_capacity_hint(Some(-3.0), 44_100), 0);
+
+        let two_seconds = mono_capacity_hint(Some(2.0), 44_100);
+        assert!(two_seconds >= 2 * 44_100);
+        assert!(two_seconds <= 2 * 44_100 + (2 * 44_100) / 32 + 4096);
+
+        // A corrupt header claiming hours must not turn into a giant blind
+        // allocation.
+        assert_eq!(
+            mono_capacity_hint(Some(36_000.0), 192_000),
+            MONO_PREALLOC_MAX_SAMPLES
+        );
+    }
 }
