@@ -214,7 +214,7 @@
             ref="queueListRef"
             class="mobile-queue-list"
             :items="queueRows"
-            :item-size="73"
+            :item-size="56"
             :item-resizable="true"
             key-field="key"
             :show-scrollbar="false"
@@ -225,7 +225,13 @@
                 :id="`mobile-queue-${row.index}`"
                 :class="[
                   'queue-song',
-                  { 'is-current': row.index === music.persistData.playSongIndex },
+                  {
+                    'is-current': row.index === music.persistData.playSongIndex,
+                    'row-odd': row.index % 2 === 0,
+                    'row-even': row.index % 2 === 1,
+                    'row-first': row.index === 0,
+                    'row-last': row.index === music.getPlaylists.length - 1,
+                  },
                 ]"
                 role="button"
                 tabindex="0"
@@ -1168,26 +1174,40 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
   }
 }
 
+// 与 QueuePanel / DesktopQueuePanel 一致的斑马纹连续列表（封面自适应色）
 .queue-song {
-  min-height: 64px;
+  min-height: 56px;
   display: grid;
-  grid-template-columns: 30px 48px minmax(0, 1fr) auto 36px;
+  grid-template-columns: 26px 42px minmax(0, 1fr) auto 32px;
   align-items: center;
   gap: 10px;
-  border-radius: var(--radius-md);
-  padding: 8px 8px 8px 4px;
-  margin-bottom: 8px;
+  border-radius: 0;
+  padding: 7px 8px;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.075);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background-color var(--duration-150) var(--ease-out);
+
+  &.row-first {
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+
+  &.row-last {
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+  }
+
+  &.row-odd {
+    background: color-mix(in srgb, var(--main-cover-color) 5%, transparent);
+  }
+
+  &.row-even {
+    background: color-mix(in srgb, var(--main-cover-color) 9%, transparent);
+  }
 
   &:active {
-    transform: scale(0.985);
+    background: color-mix(in srgb, var(--main-cover-color) 15%, transparent);
   }
 
   &.is-current {
-    background: color-mix(in srgb, var(--main-cover-color) 18%, transparent);
-    border-color: color-mix(in srgb, var(--main-cover-color) 42%, transparent);
+    background: color-mix(in srgb, var(--main-cover-color) 22%, transparent);
   }
 }
 
@@ -1226,11 +1246,10 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
 }
 
 .queue-cover {
-  width: 48px;
-  height: 48px;
-  border-radius: 7px;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-sm);
   object-fit: cover;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
 }
 
 .queue-info {
@@ -1238,13 +1257,13 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
 
   .queue-name {
     font-weight: 650;
-    font-size: 0.95rem;
-    line-height: 1.2;
+    font-size: 0.88rem;
+    line-height: 1.25;
   }
 
   .queue-artists {
-    margin-top: 5px;
-    font-size: 0.78rem;
+    margin-top: 2px;
+    font-size: 0.75rem;
     opacity: 0.62;
   }
 }
@@ -1260,9 +1279,9 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
   border: none;
   background: transparent;
   color: var(--main-cover-color);
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
   padding: 0;
   display: flex;
   align-items: center;
@@ -1272,8 +1291,7 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
 
   &:active {
     opacity: 1;
-    background: rgba(255, 255, 255, 0.12);
-    transform: scale(0.94);
+    background: color-mix(in srgb, var(--main-cover-color) 14%, transparent);
   }
 }
 
@@ -1289,13 +1307,13 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
 
 @media (max-width: 380px) {
   .queue-song {
-    grid-template-columns: 26px 44px minmax(0, 1fr) 34px;
+    grid-template-columns: 24px 40px minmax(0, 1fr) 32px;
     gap: 8px;
   }
 
   .queue-cover {
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
   }
 
   .queue-duration {
