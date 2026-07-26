@@ -60,7 +60,10 @@
   --app-floating-control-inset: calc(var(--app-shell-side-gap) + 6px);
   --app-drag-region-height: 42px;
   --app-titlebar-width: 114px;
+  --app-titlebar-height: 30px;
   --app-titlebar-gap: 10px;
+  /* 悬浮 TitleBar 下方的安全距离：右上角浮层（右侧抽屉头部、通知）让位用 */
+  --app-titlebar-safe-top: calc(var(--app-floating-control-top) + var(--app-titlebar-height));
   --z-search-overlay: 2200;
 
   /* Precomposed shortcuts */
@@ -358,6 +361,18 @@ body,
 .n-notification-container--top-right {
   top: 16px !important;
   right: 16px !important;
+}
+
+// Tauri 悬浮窗口控制按钮占用右上角时，右上角的 body 级浮层需要让位
+// （类由 TitleBar 悬浮变体挂载时打在 <html> 上）
+html.has-floating-titlebar {
+  .n-notification-container--top-right {
+    top: calc(var(--app-titlebar-safe-top, 42px) + 10px) !important;
+  }
+
+  .n-drawer--right-placement .n-drawer-header {
+    margin-top: var(--app-titlebar-safe-top, 42px);
+  }
 }
 
 // Nalert

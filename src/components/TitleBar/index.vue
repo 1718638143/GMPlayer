@@ -14,7 +14,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, type Component } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, type Component } from "vue";
 import { musicStore, settingStore } from "@/store";
 import { isTauri } from "@/utils/tauri/windowManager";
 import { getDesktopEnvironment, isMobile, type DesktopEnvironment } from "@/utils/tauri";
@@ -77,6 +77,18 @@ onMounted(async () => {
   if (usesNativeTrafficLights.value && !props.showOnMac) return;
 
   showTitleBar.value = true;
+
+  // 悬浮窗口控制按钮占用右上角，通知 body 级浮层（右侧抽屉、通知）让位。
+  // 抽屉/通知 teleport 到 body，取不到 .app-body 上的环境类，因此挂在 <html> 上。
+  if (props.variant === "floating") {
+    document.documentElement.classList.add("has-floating-titlebar");
+  }
+});
+
+onBeforeUnmount(() => {
+  if (showTitleBar.value && props.variant === "floating") {
+    document.documentElement.classList.remove("has-floating-titlebar");
+  }
 });
 </script>
 
@@ -105,7 +117,7 @@ onMounted(async () => {
   top: var(--app-floating-control-top);
   right: var(--app-floating-control-inset, 14px);
   z-index: 9999;
-  height: 30px;
+  height: var(--app-titlebar-height, 30px);
   border: 1px solid var(--acrylic-border, rgba(0, 0, 0, 0.06));
   border-radius: var(--radius-lg);
   background-color: var(--titlebar-bg, rgba(255, 255, 255, 0.52));
