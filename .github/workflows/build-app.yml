@@ -167,6 +167,46 @@ jobs:
         run: |
           pnpm build
 
+      # macOS 签名与公证（可选）。仅当仓库配置了对应 Secrets 时才导出环境变量：
+      # - APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY 三者齐全时启用 Developer ID 签名
+      #   （APPLE_SIGNING_IDENTITY 会覆盖 tauri.macos.conf.json 中的 ad-hoc "-" 签名）
+      # - APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID 三者齐全时额外启用公证 (notarization)
+      # 未配置时回退到 tauri.macos.conf.json 的 ad-hoc 签名，
+      # 用户首次打开需清除 quarantine（见 Release 说明）。
+      - name: "macOS: 配置 Apple 签名与公证（可选）"
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set_env() {
+            local name="$1" value="$2"
+            {
+              echo "${name}<<__GMPLAYER_SECRET_EOF__"
+              echo "$value"
+              echo "__GMPLAYER_SECRET_EOF__"
+            } >> "$GITHUB_ENV"
+          }
+          if [[ -n "$APPLE_CERTIFICATE" && -n "$APPLE_CERTIFICATE_PASSWORD" && -n "$APPLE_SIGNING_IDENTITY" ]]; then
+            set_env APPLE_CERTIFICATE "$APPLE_CERTIFICATE"
+            set_env APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
+            set_env APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY"
+            echo "已启用 Apple Developer ID 签名"
+          else
+            echo "未配置 Apple 签名 Secrets，使用 ad-hoc 签名"
+          fi
+          if [[ -n "$APPLE_ID" && -n "$APPLE_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
+            set_env APPLE_ID "$APPLE_ID"
+            set_env APPLE_PASSWORD "$APPLE_PASSWORD"
+            set_env APPLE_TEAM_ID "$APPLE_TEAM_ID"
+            echo "已启用 Apple 公证 (notarization)"
+          fi
+
       - name: 构建 Player 程序并发布自动构建
         uses: tauri-apps/tauri-action@v0
         with:
@@ -179,6 +219,12 @@ jobs:
             最新 ${{ github.ref_name }} 分支开发调试构建。
             Development version may be unstable and may not work properly, please only for test purpose.
             开发版本可能不稳定且可能无法正常工作，请仅用于测试目的。
+
+            macOS: builds are not notarized by Apple yet. If macOS says the app "is damaged and can't be opened" / "无法打开", run:
+            macOS: 构建暂未经过 Apple 公证。如果 macOS 提示"已损坏，无法打开"或"无法打开应用程序"，请在终端执行：
+            `xattr -cr /Applications/GMPlayer.app`
+            Then open the app again. (macOS 15+: you may also need System Settings → Privacy & Security → Open Anyway)
+            然后重新打开应用。（macOS 15 及以上还可在 系统设置 → 隐私与安全性 → 仍要打开 中放行）
 
             Latest commits (最新提交): ${{ github.event.head_commit.message }}
           prerelease: true

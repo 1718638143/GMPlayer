@@ -11,6 +11,7 @@
       "bundleName": "GMPlayer",
       "minimumSystemVersion": "10.15",
       "hardenedRuntime": true,
+      "signingIdentity": "-",
       "dmg": {
         "windowSize": {
           "width": 660,

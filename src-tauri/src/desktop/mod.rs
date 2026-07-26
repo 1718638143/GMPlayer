@@ -166,7 +166,16 @@ pub fn run() {
                 warn!("Failed to pre-create tray popup: {}", e);
             }
 
-            spawn_audio_preheat(app_handle);
+            spawn_audio_preheat(app_handle.clone());
+
+            // Never leave the app running invisibly: if the frontend fails
+            // before revealing the hidden main window, force-show it.
+            let _ = std::thread::Builder::new()
+                .name("main-window-reveal-fallback".into())
+                .spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                    wm::reveal_main_window_if_stuck(&app_handle);
+                });
 
             Ok(())
         })

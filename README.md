@@ -135,6 +135,18 @@ pnpm dev
 对于其他 Coding Agents，也可以进行一样的适配操作
 这里为精简项目根目录，故不进行配置，也请勿提交，可在本地自行进行软链接。
 
+### macOS 无法打开应用（"已损坏"提示）
+
+Tauri macOS 构建目前仅使用 ad-hoc 签名，未经过 Apple 公证。从 GitHub Releases 下载的 `.dmg` / `.app` 会被 macOS 附加 quarantine 属性，首次打开时 Gatekeeper 会提示 **"GMPlayer 已损坏，无法打开"** 或 **"无法打开应用程序"**。这不是应用本身损坏，清除 quarantine 属性即可正常打开：
+
+```bash
+xattr -cr /Applications/GMPlayer.app
+```
+
+若将 App 放在其他位置，请把路径替换为实际位置。macOS 15 (Sequoia) 及以上也可以在首次被拦截后，前往 `系统设置 → 隐私与安全性`，在页面底部点击 `仍要打开`。
+
+维护者如需彻底去除该提示，可在仓库配置以下 GitHub Secrets 启用 Developer ID 签名与公证（CI 会自动生效）：`APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`，以及可选的 `APPLE_ID`、`APPLE_PASSWORD`、`APPLE_TEAM_ID`。
+
 ### Linux Wayland 图形兼容
 
 Tauri Linux 端使用 WebKitGTK。部分 Wayland 组合器、显卡驱动或混合显卡环境下，WebKitGTK 的 DMABUF renderer 可能导致 WebGL/Canvas 加速异常、黑屏或渲染卡顿。应用默认会在 Wayland 会话下启用较保守的 WebKitGTK 图形策略；如需排查，可通过启动环境变量覆盖：

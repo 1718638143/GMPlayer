@@ -259,6 +259,31 @@ pub fn set_main_window_effect_theme(app: &AppHandle, dark: bool) -> Result<(), S
     Ok(())
 }
 
+/// Safety net for the hidden main window. The window is created invisible and
+/// only revealed when the frontend calls `set_main_window_effect_theme`; if the
+/// frontend fails before that call (script error, rejected invoke), the app
+/// would keep running with no window at all — on macOS this looks like the app
+/// "cannot be opened". Apply the default material for the current system theme
+/// and reveal instead of staying invisible.
+pub fn reveal_main_window_if_stuck(app: &AppHandle) {
+    if MAIN_SHELL_EFFECT_INITIALIZED.load(Ordering::Acquire) {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if window.is_visible().unwrap_or(false) {
+        return;
+    }
+    let dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
+    log::warn!("Main window was never revealed by the frontend; forcing fallback reveal");
+    if let Err(e) = set_main_window_effect_theme(app, dark) {
+        log::warn!("Fallback reveal failed to apply the shell material: {e}");
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 fn apply_runtime_size_constraints(
     window: &WebviewWindow,
     config: &WindowConfig,
