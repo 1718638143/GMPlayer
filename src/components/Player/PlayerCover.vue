@@ -385,21 +385,29 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 .player-cover-container {
-  --cover-size: min(50vh, 38vw);
+  /* 高度预算：控件区约 15rem + 纵向 gap 2rem + 顶部关闭手柄余量 2.5rem */
+  --cover-controls-budget: 19.5rem;
+  --cover-size: max(10rem, min(50vh, 38vw, calc(100vh - var(--cover-controls-budget) - 2.5rem)));
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2rem;
+  /* 关闭手柄绝对定位在封面上方出画区，这里预留其高度，
+     避免矮窗口下被居中布局顶出视口 */
+  padding-top: 2.5rem;
 
   @media screen and (max-height: 768px) {
-    --cover-size: min(45vh, 38vw);
+    --cover-size: max(9rem, min(45vh, 38vw, calc(100vh - var(--cover-controls-budget) - 2rem)));
     gap: 1.5rem;
+    padding-top: 2.25rem;
   }
 
   .cover-stage {
     position: relative;
-    width: var(--cover-size);
-    height: var(--cover-size);
+    /* 同时受容器实际宽度约束（.left 为 40% 宽减内边距，38vw 在窄局部会超宽） */
+    width: min(var(--cover-size), 100%);
+    aspect-ratio: 1 / 1;
   }
 
   .amll-close-action {
@@ -434,7 +442,9 @@ onMounted(() => {
     }
   }
   .controls {
-    width: var(--cover-size);
+    width: min(var(--cover-size), 100%);
+    /* 封面被矮窗口压得很小时，控件区保底宽度，避免按钮/时间挤作一团 */
+    min-width: min(18rem, 100%);
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
@@ -462,11 +472,11 @@ onMounted(() => {
         flex-direction: column;
         gap: 0.25rem;
         .name {
-          font-size: 1.5rem;
+          font-size: clamp(1.15rem, calc(var(--cover-size) * 0.055), 1.5rem);
           font-weight: 600;
         }
         .artists {
-          font-size: 1rem;
+          font-size: clamp(0.85rem, calc(var(--cover-size) * 0.04), 1rem);
           opacity: 1;
           .artist-name {
             cursor: pointer;
