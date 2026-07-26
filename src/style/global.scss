@@ -32,6 +32,13 @@
   --shadow-3: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
   --shadow-hover: 0 12px 30px rgba(0, 0, 0, 0.14), 0 3px 8px rgba(0, 0, 0, 0.09);
 
+  /* Semantic surface tokens — shadcn/ui 式语义变量（浅色默认值，深色见 html[data-theme="dark"]） */
+  --border-color: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.14);
+  --hover-overlay: rgba(0, 0, 0, 0.05);
+  --active-overlay: rgba(0, 0, 0, 0.09);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--main-color, #f55e55) 24%, transparent);
+
   /* Blur — 统一毛玻璃模糊强度 */
   --blur-sm: 8px;
   --blur-md: 16px;
@@ -67,6 +74,18 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+/* 深色模式语义 token — 边框/蒙层换白色基调，阴影加深保证层级仍可读 */
+html[data-theme="dark"] {
+  --border-color: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --hover-overlay: rgba(255, 255, 255, 0.07);
+  --active-overlay: rgba(255, 255, 255, 0.12);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 3px rgba(0, 0, 0, 0.22);
+  --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.26);
+  --shadow-3: 0 8px 24px rgba(0, 0, 0, 0.42), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 12px 30px rgba(0, 0, 0, 0.46), 0 3px 8px rgba(0, 0, 0, 0.32);
 }
 
 // HarmonyOS Sans
@@ -274,10 +293,8 @@ body,
     padding: 10px 14px;
     font-size: 13px;
     background: var(--message-bg, rgba(255, 255, 255, 0.72)) !important;
-    border: 1px solid var(--message-border, rgba(0, 0, 0, 0.06));
-    box-shadow:
-      0 4px 12px rgba(0, 0, 0, 0.08),
-      0 1px 3px rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--message-border, var(--border-color));
+    box-shadow: var(--shadow-2);
     -webkit-backdrop-filter: blur(12px) saturate(180%);
     backdrop-filter: blur(12px) saturate(180%);
     transition:
@@ -334,9 +351,7 @@ body,
 // Notification
 .n-notification {
   border-radius: var(--radius-panel) !important;
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.12),
-    0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-3);
 }
 
 // 桌面端通知位置微调

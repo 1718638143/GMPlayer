@@ -90,9 +90,9 @@ onMounted(async () => {
   -webkit-app-region: no-drag;
   app-region: no-drag;
   transition:
-    opacity 0.25s ease,
-    background-color 0.2s ease,
-    border-color 0.2s ease;
+    opacity var(--duration-200) var(--ease-out),
+    background-color var(--duration-200) var(--ease-out),
+    border-color var(--duration-200) var(--ease-out);
 
   &.dark-mode {
     --titlebar-bg: rgba(24, 24, 24, 0.56);

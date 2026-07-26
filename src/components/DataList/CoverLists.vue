@@ -430,13 +430,13 @@ onMounted(() => {
       align-items: center;
       justify-content: center;
       position: relative;
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       cursor: pointer;
       transition:
         transform var(--duration-200) var(--ease-out),
         box-shadow var(--duration-200) var(--ease-out);
       .coverImg {
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         width: 100%;
         height: 100%;
         overflow: hidden;
@@ -504,8 +504,8 @@ onMounted(() => {
         -webkit-backdrop-filter: blur(4px);
         backdrop-filter: blur(4px);
         padding: 6px;
-        border-top-left-radius: 8px;
-        border-bottom-right-radius: 8px;
+        border-top-left-radius: var(--radius-md);
+        border-bottom-right-radius: var(--radius-md);
         transition:
           opacity var(--duration-150) var(--ease-in-out),
           transform var(--duration-150) var(--ease-in-out);
@@ -524,9 +524,7 @@ onMounted(() => {
       }
       &:hover {
         transform: translateY(-2px);
-        box-shadow:
-          0 8px 24px rgb(0 0 0 / 0.12),
-          0 2px 6px rgb(0 0 0 / 0.08);
+        box-shadow: var(--shadow-3);
         .coverImg {
           filter: brightness(0.72);
           :deep(img) {
@@ -587,7 +585,7 @@ onMounted(() => {
       padding-bottom: 100%;
       width: 100%;
       height: 0;
-      border-radius: 8px !important;
+      border-radius: var(--radius-md) !important;
       margin-bottom: 12px;
     }
   }

@@ -60,7 +60,7 @@ const isActive = (tab) => {
   align-items: center;
   pointer-events: var(--mobile-mini-player-bottom-pointer-events, auto);
   transform: translate3d(0, var(--mobile-mini-player-bottom-y, 0%), 0);
-  transition: background-color 0.3s;
+  transition: background-color var(--duration-300) var(--ease-out);
   will-change: transform;
 
   &.dark {
@@ -83,7 +83,7 @@ const isActive = (tab) => {
   height: 100%;
   cursor: pointer;
   color: #999;
-  transition: color 0.3s;
+  transition: color var(--duration-300) var(--ease-out);
 
   .dark & {
     color: #777;

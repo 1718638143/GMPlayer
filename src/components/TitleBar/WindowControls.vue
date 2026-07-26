@@ -154,8 +154,8 @@ onBeforeUnmount(() => {
   color: inherit;
   background-color: transparent;
   transition:
-    background-color 0.12s ease,
-    color 0.12s ease;
+    background-color var(--duration-150) var(--ease-out),
+    color var(--duration-150) var(--ease-out);
 
   &:hover {
     background-color: color-mix(in srgb, currentColor 12%, transparent);
