@@ -884,6 +884,9 @@ const setupNativeSound = (
     if (autoMix.isCrossfading()) return;
     checkpointActivePosition(sound, music);
     stopTimeUpdate();
+    // No audio flows while paused — park the per-frame analysis loop instead
+    // of polling FFT/lowfreq at 60fps. The play handler restarts it.
+    stopSpectrumUpdate();
     if (IS_DEV) console.log("[Native] 音乐暂停");
     music.setPlayState(false);
     window.$setSiteTitle("");
@@ -1207,6 +1210,9 @@ export const createSound = (
       }
       checkpointActivePosition(sound, music);
       stopTimeUpdate();
+      // No audio flows while paused — park the per-frame analysis loop instead
+      // of polling FFT/lowfreq at 60fps. The play handler restarts it.
+      stopSpectrumUpdate();
       if (IS_DEV) {
         console.log("音乐暂停");
       }
@@ -1482,6 +1488,9 @@ export const adoptIncomingSound = (incomingSound: ISound): void => {
     }
     checkpointActivePosition(incomingSound, music);
     stopTimeUpdate();
+    // No audio flows while paused — park the per-frame analysis loop instead
+    // of polling FFT/lowfreq at 60fps. The play handler restarts it.
+    stopSpectrumUpdate();
     if (IS_DEV) {
       console.log("音乐暂停 (adopted sound)");
     }

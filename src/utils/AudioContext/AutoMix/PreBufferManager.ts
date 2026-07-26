@@ -24,6 +24,11 @@ interface PreBufferState {
 export class PreBufferManager {
   private _preBuffered: PreBufferState | null = null;
   private _isBuffering: boolean = false;
+  /** Bumped by cleanup() and each new pre-buffer chain. An in-flight
+   * doPreBuffer() whose epoch is stale must release its sound instead of
+   * publishing it — otherwise a cancel during download orphans a fully
+   * buffered song (Blob URL + ArrayBuffer never revoked). */
+  private _epoch: number = 0;
 
   /**
    * Start pre-buffering the next track. Fire-and-forget.
@@ -55,15 +60,17 @@ export class PreBufferManager {
     const nextSong = playlist[nextIndex];
     if (!nextSong) return;
 
+    this._isBuffering = true;
+    const epoch = ++this._epoch;
+
     const canContinue = (): boolean => {
+      if (epoch !== this._epoch) return false;
       const state = stateGetter();
       return (
         (state === "idle" || state === "analyzing" || state === "waiting") &&
         musicStore.persistData.playSongIndex === currentIndex
       );
     };
-
-    this._isBuffering = true;
 
     const doPreBuffer = async () => {
       // Step 1: Resolve music URL (unified: NCM + trial detection + UNM fallback)
@@ -123,6 +130,10 @@ export class PreBufferManager {
             if (blobUrl) {
               const analysis = await analyzeTrack(blobUrl, { analyzeBPM: settings.bpmMatch });
               preBufferedAnalysis = { songId: nextSong.id, analysis };
+              // Share with the state machine's cache so a discarded pre-buffer
+              // doesn't force a full re-decode of the same track later.
+              // (The cache is size-capped by its owner after every crossfade.)
+              analysisCache.set(nextSong.id, preBufferedAnalysis);
             }
           } catch (err) {
             if (IS_DEV) console.warn("PreBufferManager: Analysis failed", err);
@@ -153,7 +164,14 @@ export class PreBufferManager {
         return;
       }
 
-      // Store pre-buffered state
+      // Store pre-buffered state. Defensive: never orphan an existing buffer —
+      // with the epoch guard this should be unreachable, but an overwritten
+      // BufferedSound would leak its whole download.
+      if (this._preBuffered && this._preBuffered.sound !== sound) {
+        this._preBuffered.sound.stop();
+        this._preBuffered.sound.unload();
+        this._preBuffered = null;
+      }
       this._preBuffered = {
         sound,
         songIndex: nextIndex,
@@ -176,7 +194,11 @@ export class PreBufferManager {
         }
       })
       .finally(() => {
-        this._isBuffering = false;
+        // Only the live chain may clear the flag — a stale chain clearing it
+        // would re-open the startPreBuffer guard while a newer chain runs.
+        if (epoch === this._epoch) {
+          this._isBuffering = false;
+        }
       });
   }
 
@@ -207,6 +229,9 @@ export class PreBufferManager {
    * Clean up pre-buffered state. Safe to call at any time.
    */
   cleanup(): void {
+    // Invalidate any in-flight doPreBuffer() chain: its next canContinue()
+    // check fails and it releases its own sound.
+    this._epoch++;
     if (this._preBuffered) {
       this._preBuffered.sound.stop();
       this._preBuffered.sound.unload();

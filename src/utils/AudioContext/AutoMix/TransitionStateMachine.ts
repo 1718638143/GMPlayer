@@ -118,6 +118,11 @@ export class TransitionStateMachine {
   // Async guard: prevent duplicate analysis
   private _analyzingInFlight: boolean = false;
 
+  // Invalidates in-flight _doAnalysis chains: cancelCrossfade() clears
+  // `_analyzingInFlight` while the old promise is still awaiting, so its
+  // settle handlers must not touch the state of a newer analysis cycle.
+  private _analysisGeneration: number = 0;
+
   // Failure cooldown: prevent retry loops after crossfade failure
   private _lastFailureTime: number = 0;
 
@@ -745,10 +750,12 @@ export class TransitionStateMachine {
 
     this._state = "analyzing";
     this._analyzingInFlight = true;
+    const generation = ++this._analysisGeneration;
     this._updateStoreState();
 
-    this._doAnalysis()
+    this._doAnalysis(generation)
       .then(() => {
+        if (generation !== this._analysisGeneration) return;
         if (this._state === "analyzing") {
           this._state = "waiting";
           this._updateStoreState();
@@ -761,6 +768,7 @@ export class TransitionStateMachine {
             err,
           );
         }
+        if (generation !== this._analysisGeneration) return;
         if (this._state === "analyzing") {
           this._currentAnalysis = null;
           this._nextAnalysis = null;
@@ -770,11 +778,13 @@ export class TransitionStateMachine {
         }
       })
       .finally(() => {
-        this._analyzingInFlight = false;
+        if (generation === this._analysisGeneration) {
+          this._analyzingInFlight = false;
+        }
       });
   }
 
-  private async _doAnalysis(): Promise<void> {
+  private async _doAnalysis(generation: number): Promise<void> {
     const music = this._musicStoreRef;
     if (!music) return;
 
@@ -790,10 +800,12 @@ export class TransitionStateMachine {
           const analysis = await analyzeTrack(analysisUrl, {
             analyzeBPM: this._settingsBpmMatch,
           });
+          if (generation !== this._analysisGeneration) return;
           this._currentAnalysis = { songId: currentSong.id, analysis };
           this._addToCache(this._currentAnalysis);
         } catch (err) {
           if (IS_DEV) console.warn("TransitionStateMachine: Current track analysis failed", err);
+          if (generation !== this._analysisGeneration) return;
         }
       }
     } else if (currentSong && this._analysisCache.has(currentSong.id)) {
@@ -1921,7 +1933,9 @@ export class TransitionStateMachine {
     }
 
     this._crossfadeScheduler.cancel();
-    this._transitionEffects.cleanup();
+    // reconnectOutgoing: revertTransition below restores the outgoing sound as
+    // current, so its gain must be routed back to destination.
+    this._transitionEffects.cleanup(true);
 
     if (this._softwareFadeTimerId !== null) {
       clearTimeout(this._softwareFadeTimerId);
@@ -1975,6 +1989,9 @@ export class TransitionStateMachine {
     this._incomingSourceUrl = null;
 
     this._analyzingInFlight = false;
+    // Invalidate any in-flight _doAnalysis so its settle handlers become no-ops
+    // instead of corrupting the state of the next analysis cycle.
+    this._analysisGeneration++;
     this._nextAnalysis = null;
     this._lastStrategy = null;
     this._pendingNextIndex = -1;
@@ -2142,8 +2159,17 @@ export class TransitionStateMachine {
       let analysisUrl = this._getSoundAnalysisUrl(sound);
       if (!analysisUrl && sound instanceof BufferedSound) {
         await new Promise<void>((resolve) => {
-          sound.once("load", resolve);
-          setTimeout(resolve, 30000);
+          const onLoad = (): void => {
+            clearTimeout(timer);
+            resolve();
+          };
+          // Clear whichever side loses the race: a live 30s timer pins the
+          // sound via this closure; a stale listener lingers until unload.
+          const timer = setTimeout(() => {
+            sound.off("load", onLoad);
+            resolve();
+          }, 30000);
+          sound.once("load", onLoad);
         });
         analysisUrl = this._getSoundAnalysisUrl(sound);
       }

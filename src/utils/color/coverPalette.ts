@@ -35,7 +35,10 @@ export interface CoverPalette {
 
 const DEFAULT_RGB: RGB = [128, 128, 128];
 const DEFAULT_SOURCE_RGB: RGB = [98, 102, 116];
+// LRU-capped: every played track and every visited album/playlist/artist page
+// inserts an entry, so an uncapped map grows for the whole session.
 const PALETTE_CACHE = new Map<string, Promise<CoverPalette>>();
+const PALETTE_CACHE_MAX_ENTRIES = 96;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const roundChannel = (value: number) => Math.round(clamp(value, 0, 255));
@@ -323,7 +326,12 @@ export const getCoverPalette = (coverSrc: string): Promise<CoverPalette> => {
 
   const normalizedSrc = normalizeCoverUrl(coverSrc);
   const cached = PALETTE_CACHE.get(normalizedSrc);
-  if (cached) return cached;
+  if (cached) {
+    // Refresh recency so hot covers survive eviction
+    PALETTE_CACHE.delete(normalizedSrc);
+    PALETTE_CACHE.set(normalizedSrc, cached);
+    return cached;
+  }
 
   const request = loadImage(normalizedSrc)
     .then(extractCoverPalette)
@@ -332,6 +340,11 @@ export const getCoverPalette = (coverSrc: string): Promise<CoverPalette> => {
       return getFallbackPalette();
     });
 
+  while (PALETTE_CACHE.size >= PALETTE_CACHE_MAX_ENTRIES) {
+    const oldest = PALETTE_CACHE.keys().next().value;
+    if (oldest === undefined) break;
+    PALETTE_CACHE.delete(oldest);
+  }
   PALETTE_CACHE.set(normalizedSrc, request);
   return request;
 };

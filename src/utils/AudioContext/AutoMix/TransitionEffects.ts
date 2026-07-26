@@ -67,6 +67,14 @@ export class TransitionEffects {
     startTime: number,
     crossfadeDuration: number,
   ): void {
+    // Guard: release any previous reverb nodes before overwriting the refs —
+    // an overwritten convolver stays wired to its source and can't be reclaimed
+    if (this._convolver || this._reverbGain) {
+      if (IS_DEV) {
+        console.warn("TransitionEffects: Previous reverb tail still active, cleaning up first");
+      }
+      this._teardownReverb();
+    }
     // Clamp decay time
     decayTime = Math.max(1.5, Math.min(3.0, decayTime));
 
@@ -266,6 +274,13 @@ export class TransitionEffects {
     bpm?: number,
     targetFreq: number = 2000,
   ): void {
+    // Guard: release any previous riser before overwriting the refs
+    if (this._noiseSource || this._noiseFilter || this._riserGain) {
+      if (IS_DEV) {
+        console.warn("TransitionEffects: Previous noise riser still active, cleaning up first");
+      }
+      this._teardownRiser();
+    }
     // Beat-sync duration if BPM available
     if (bpm && bpm > 0) {
       const beatDuration = 60 / bpm;
@@ -331,6 +346,13 @@ export class TransitionEffects {
     bpm?: number,
     intensity: number = 0.5,
   ): void {
+    // Guard: release any previous swell before overwriting the refs
+    if (this._reverseSource || this._reverseFilter || this._reverseGain) {
+      if (IS_DEV) {
+        console.warn("TransitionEffects: Previous reverse swell still active, cleaning up first");
+      }
+      this._teardownSwell();
+    }
     if (bpm && bpm > 0) {
       const beatDuration = 60 / bpm;
       const beats = Math.max(1, Math.round(duration / beatDuration));
@@ -398,6 +420,13 @@ export class TransitionEffects {
     bpm?: number,
     intensity: number = 0.5,
   ): void {
+    // Guard: release any previous echo chain before overwriting the refs
+    if (this._echoDelay || this._echoFeedback || this._echoFilter || this._echoGain) {
+      if (IS_DEV) {
+        console.warn("TransitionEffects: Previous echo throw still active, cleaning up first");
+      }
+      this._teardownEcho();
+    }
     duration = Math.max(0.8, Math.min(4.0, duration));
     intensity = Math.max(0, Math.min(1, intensity));
 
@@ -577,12 +606,20 @@ export class TransitionEffects {
   }
 
   /**
-   * Clean up all effect nodes, disconnecting from the audio graph.
+   * Tear down the reverb send: outgoingGain → convolver → reverbGain → destination.
+   * The upstream edge must be severed while the convolver ref is still alive —
+   * otherwise the outgoing GainNode keeps the convolver (and its IR buffer)
+   * reachable for as long as the gain node lives.
    */
-  cleanup(): void {
-    // Get AudioContext for reconnecting gain nodes after sweep filter removal
-    const ctx = AudioContextManager.getContext();
-
+  private _teardownReverb(): void {
+    if (this._reverbConnectedTo && this._convolver) {
+      try {
+        this._reverbConnectedTo.disconnect(this._convolver);
+      } catch {
+        /* ok */
+      }
+    }
+    this._reverbConnectedTo = null;
     if (this._convolver) {
       try {
         this._convolver.disconnect();
@@ -599,10 +636,9 @@ export class TransitionEffects {
       }
       this._reverbGain = null;
     }
-    // Disconnect reverb parallel connection from outgoing gain
-    // (don't disconnect outgoingGain entirely — it's still used by the main chain)
-    this._reverbConnectedTo = null;
+  }
 
+  private _teardownRiser(): void {
     if (this._noiseSource) {
       try {
         this._noiseSource.stop();
@@ -632,7 +668,9 @@ export class TransitionEffects {
       }
       this._riserGain = null;
     }
+  }
 
+  private _teardownSwell(): void {
     if (this._reverseSource) {
       try {
         this._reverseSource.stop();
@@ -662,7 +700,9 @@ export class TransitionEffects {
       }
       this._reverseGain = null;
     }
+  }
 
+  private _teardownEcho(): void {
     if (this._echoConnectedTo && this._echoDelay) {
       try {
         this._echoConnectedTo.disconnect(this._echoDelay);
@@ -703,6 +743,22 @@ export class TransitionEffects {
       }
       this._echoGain = null;
     }
+  }
+
+  /**
+   * Clean up all effect nodes, disconnecting from the audio graph.
+   * @param reconnectOutgoing - restore the outgoing gain's direct route to
+   * destination after removing the sweep filter. Required on the cancel path,
+   * where the outgoing sound is reverted to current and keeps playing.
+   */
+  cleanup(reconnectOutgoing = false): void {
+    // Get AudioContext for reconnecting gain nodes after sweep filter removal
+    const ctx = AudioContextManager.getContext();
+
+    this._teardownReverb();
+    this._teardownRiser();
+    this._teardownSwell();
+    this._teardownEcho();
 
     if (this._gateGain) {
       try {
@@ -727,8 +783,10 @@ export class TransitionEffects {
     this._gateConnectedTo = null;
 
     // Clean up filter sweep: disconnect filters and reconnect gain nodes → destination
-    // Note: outgoing gain is NOT reconnected — it's about to be stopped/unloaded
-    // by _onCrossfadeComplete. Only the incoming gain needs reconnection.
+    // On the complete path the outgoing gain is NOT reconnected — the sound is
+    // about to be stopped/unloaded by _onCrossfadeComplete. On the cancel path
+    // (`reconnectOutgoing`) the outgoing sound is reverted to current and must
+    // get its direct route to destination back, or it plays silently.
     if (this._outSweepFilter) {
       try {
         this._outSweepFilter.disconnect();
@@ -741,7 +799,13 @@ export class TransitionEffects {
         } catch {
           /* ok */
         }
-        // Don't reconnect outgoing to destination — sound is being destroyed
+        if (reconnectOutgoing && ctx) {
+          try {
+            this._outSweepGainRef.connect(ctx.destination);
+          } catch {
+            /* ok */
+          }
+        }
       }
       this._outSweepFilter = null;
     }

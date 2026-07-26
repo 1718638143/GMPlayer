@@ -391,6 +391,10 @@ export class FbmRenderer extends BaseRenderer {
     if (this.texCoordBuffer) gl.deleteBuffer(this.texCoordBuffer);
     if (this.indexBuffer) gl.deleteBuffer(this.indexBuffer);
     this.hasImage = false;
+    // The owning component creates a fresh canvas + webgl2 context per mount,
+    // and browsers cap live contexts (~16) with GC-timed reclamation — release
+    // this one eagerly so repeated mount cycles can't evict newer contexts.
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
   }
 
   async setAlbum(albumSource: string | HTMLImageElement | HTMLVideoElement, _isVideo?: boolean) {

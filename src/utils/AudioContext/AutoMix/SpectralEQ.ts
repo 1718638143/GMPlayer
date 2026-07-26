@@ -206,15 +206,36 @@ export class SpectralEQ {
     const audioCtx = AudioContextManager.getContext();
     if (!audioCtx) return;
 
-    if (this._outgoingFilters.length > 0 && outgoingGain) {
-      this._removeFilterChain(outgoingGain, this._outgoingFilters, audioCtx);
+    // Even without the gain ref the filters must be disconnected and the
+    // arrays reset — otherwise the next setup() overwrites the arrays and
+    // orphans filters that are still wired to destination.
+    if (this._outgoingFilters.length > 0) {
+      if (outgoingGain) {
+        this._removeFilterChain(outgoingGain, this._outgoingFilters, audioCtx);
+      } else {
+        this._disconnectFilters(this._outgoingFilters);
+      }
       this._outgoingFilters = [];
     }
-    if (this._incomingFilters.length > 0 && incomingGain) {
-      this._removeFilterChain(incomingGain, this._incomingFilters, audioCtx);
+    if (this._incomingFilters.length > 0) {
+      if (incomingGain) {
+        this._removeFilterChain(incomingGain, this._incomingFilters, audioCtx);
+      } else {
+        this._disconnectFilters(this._incomingFilters);
+      }
       this._incomingFilters = [];
     }
     this._spectralData = null;
+  }
+
+  private _disconnectFilters(filters: BiquadFilterNode[]): void {
+    for (const f of filters) {
+      try {
+        f.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    }
   }
 
   get hasFilters(): boolean {
