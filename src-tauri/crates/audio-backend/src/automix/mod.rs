@@ -338,7 +338,10 @@ where
     // Preallocate from the duration hint: growing a multi-minute track by
     // push-doubling briefly holds the old and new buffers at every doubling
     // (up to ~3× the final size at the last one), which alone accounted for
-    // most of the transient RES spike during AutoMix prepare.
+    // most of the transient RES spike during AutoMix prepare. This supersedes
+    // master's time-capped `reserve_exact` variant: the cap here is an
+    // absolute sample count (so hi-res rates cannot inflate it), computed in
+    // f64 with saturating margin arithmetic, and sized per pointer width.
     let mut mono = Vec::with_capacity(mono_capacity_hint(duration_hint, sample_rate));
     let mut frame_sum = 0.0f32;
     let mut frame_channel = 0usize;

@@ -74,11 +74,14 @@ let cachedLyricSettingsKey = "";
 let cachedLyricPayload: PlayerLyricPayload | null = null;
 
 // Which content windows (mini-player / desktop-lyrics / taskbar-lyric) are
-// currently open. The 20fps time broadcast is skipped entirely when this is
-// empty, and only fans out to the labels that are actually open — so the
-// common case (no lyric/mini windows) costs nothing, and one open window costs
-// one `emitTo` instead of three.
+// currently open AND visible. The 20fps time broadcast is skipped entirely
+// when this is empty, and only fans out to the labels that are actually open —
+// so the common case (no lyric/mini windows) costs nothing, and one open
+// window costs one `emitTo` instead of three. Hidden-but-alive windows count
+// as closed: Rust announces show/hide via `managed-window-visibility`, and a
+// re-shown window is healed with a full-state push.
 const openContentWindows = new Set<string>();
+let openContentLabelsCache: string[] | null = null;
 let contentWindowReconcileTimer: ReturnType<typeof setInterval> | null = null;
 
 function getMusic() {
@@ -118,19 +121,37 @@ function isContentWindowLabel(label: string): boolean {
   return (PLAYER_CONTENT_WINDOW_LABELS as readonly string[]).includes(label);
 }
 
-/** Labels of content windows believed open, in canonical order. */
+/** Labels of content windows believed open, in canonical order. Cached — the
+ * 30Hz time-broadcast path calls this per tick, so recomputing the filter
+ * would allocate ~100k throwaway arrays per hour. */
 function openContentBroadcastLabels(): string[] {
-  return PLAYER_CONTENT_WINDOW_LABELS.filter((label) => openContentWindows.has(label));
+  openContentLabelsCache ??= PLAYER_CONTENT_WINDOW_LABELS.filter((label) =>
+    openContentWindows.has(label),
+  );
+  return openContentLabelsCache;
+}
+
+function addContentWindow(label: string): boolean {
+  if (openContentWindows.has(label)) return false;
+  openContentWindows.add(label);
+  openContentLabelsCache = null;
+  return true;
+}
+
+function removeContentWindow(label: string): void {
+  if (openContentWindows.delete(label)) {
+    openContentLabelsCache = null;
+  }
 }
 
 /**
  * Mark a content window open. Called from the `slaveReady` handshake, which the
  * slave re-sends with retries — so opens are never missed. Closes are handled
- * by the reconcile loop, so this only ever *adds*.
+ * by the visibility events plus the reconcile loop, so this only ever *adds*.
  */
 function markContentWindowOpen(label: string): void {
   if (!isContentWindowLabel(label)) return;
-  openContentWindows.add(label);
+  addContentWindow(label);
   ensureContentWindowReconcile();
 }
 
@@ -141,32 +162,45 @@ function ensureContentWindowReconcile(): void {
   }, CONTENT_WINDOW_RECONCILE_MS);
 }
 
+function stopContentWindowReconcileIfIdle(): void {
+  if (openContentWindows.size === 0 && contentWindowReconcileTimer !== null) {
+    clearInterval(contentWindowReconcileTimer);
+    contentWindowReconcileTimer = null;
+  }
+}
+
 /**
- * Prune content windows that have closed. Never *under-reports* open windows:
- * on a failed/empty window query we keep the current belief so a live slave is
- * never starved of updates. When nothing is open, the reconcile loop stops
- * (opens restart it via `markContentWindowOpen`).
+ * Reconcile the open-window belief against real window state. A window counts
+ * as open only while it exists AND is visible — a hidden-but-alive window
+ * (e.g. mini-player toggled away) must not keep the heartbeat/broadcast
+ * machinery running for the rest of the session. Never *under-reports* on a
+ * failed query: keep the current belief so a live slave is never starved.
+ * When nothing is open, the reconcile loop stops (opens restart it via
+ * `markContentWindowOpen` or the visibility event).
  */
 async function reconcileContentWindows(): Promise<void> {
-  const open = await windowManager.listWindows().catch(() => null);
-  if (open) {
-    const openSet = new Set(open);
-    for (const label of openContentWindows) {
-      if (!openSet.has(label)) openContentWindows.delete(label);
-    }
-    // Pick up any content window that opened without a handshake (safety net).
-    for (const label of PLAYER_CONTENT_WINDOW_LABELS) {
-      if (openSet.has(label)) openContentWindows.add(label);
+  const states = await Promise.all(
+    PLAYER_CONTENT_WINDOW_LABELS.map(async (label) => ({
+      label,
+      state: await windowManager.getWindowState(label).catch(() => null),
+    })),
+  );
+  for (const { label, state } of states) {
+    if (!state) continue;
+    if (state.exists && state.visible) {
+      // Discovered outside the handshake (master reload while slaves stayed
+      // open, missed visibility event) — heal it with a full-state push.
+      if (addContentWindow(label)) {
+        broadcastPlayerFullState(label);
+      }
+    } else {
+      removeContentWindow(label);
     }
   }
-  if (openContentWindows.size === 0) {
-    if (contentWindowReconcileTimer !== null) {
-      clearInterval(contentWindowReconcileTimer);
-      contentWindowReconcileTimer = null;
-    }
-  } else {
-    // Windows discovered outside the handshake (e.g. a master reload while
-    // slaves stayed open) must still be pruned when they close later.
+  stopContentWindowReconcileIfIdle();
+  if (openContentWindows.size > 0) {
+    // Windows discovered outside the handshake must still be pruned when they
+    // close later.
     ensureContentWindowReconcile();
   }
 }
@@ -225,14 +259,29 @@ function buildLrcPayload(songLyric: SongLyric) {
   return Array.isArray(songLyric.lrc) ? songLyric.lrc : [];
 }
 
+function clearLyricBroadcastCache(): void {
+  cachedLyricSource = null;
+  cachedLyricSongId = null;
+  cachedLyricSettingsKey = "";
+  cachedLyricPayload = null;
+}
+
 function buildPlayerLyricPayload(force = false): PlayerLyricPayload | null {
   const music = getMusic();
   const setting = getSetting();
   const songData = music.getPlaySongData;
-  if (!songData) return null;
+  if (!songData) {
+    // Queue cleared — drop the module-level refs so the previous track's
+    // lyric payload doesn't stay pinned after the store has reset.
+    clearLyricBroadcastCache();
+    return null;
+  }
 
   const songLyric = toRaw(music.songLyric) as SongLyric | null;
-  if (!songLyric) return null;
+  if (!songLyric) {
+    clearLyricBroadcastCache();
+    return null;
+  }
 
   const settingsKey = lyricSettingsKey(setting);
   if (
@@ -362,18 +411,21 @@ export function broadcastPlayerTime(force = false) {
 
 export function broadcastPlayerLyrics(force = false) {
   if (!isTauri()) return;
+  // Only visible content windows need the payload — anything (re)opening later
+  // is healed by the full-state push, so skip the (expensive) payload build
+  // and the per-window IPC serialization entirely when none is visible.
+  const labels = openContentBroadcastLabels();
+  if (labels.length === 0) return;
   const payload = buildPlayerLyricPayload(force);
   if (!payload) return;
-  emitToLabels(PLAYER_COMMUNICATION_EVENTS.lyric, payload, PLAYER_CONTENT_WINDOW_LABELS);
+  emitToLabels(PLAYER_COMMUNICATION_EVENTS.lyric, payload, labels);
 }
 
 export function broadcastPlayerSettings() {
   if (!isTauri()) return;
-  emitToLabels(
-    PLAYER_COMMUNICATION_EVENTS.settings,
-    buildPlayerSettingsPayload(),
-    PLAYER_CONTENT_WINDOW_LABELS,
-  );
+  const labels = openContentBroadcastLabels();
+  if (labels.length === 0) return;
+  emitToLabels(PLAYER_COMMUNICATION_EVENTS.settings, buildPlayerSettingsPayload(), labels);
 }
 
 export function broadcastPlayerFullState(targetLabel: string) {
@@ -491,12 +543,30 @@ export async function setupMainPlayerCommunication(options: MainPlayerCommunicat
     }
   });
 
+  // Rust announces show/hide of managed windows. Hidden slaves drop out of the
+  // broadcast set (stopping the heartbeat/reconcile machinery when nothing is
+  // visible); re-shown slaves rejoin and are healed with a full-state push —
+  // they don't re-run the slaveReady handshake because the page never reloads.
+  await tauri.event.listen<{ label?: unknown; visible?: unknown }>(
+    "managed-window-visibility",
+    (event) => {
+      const label = event.payload?.label;
+      const visible = event.payload?.visible;
+      if (typeof label !== "string" || typeof visible !== "boolean") return;
+      if (!isContentWindowLabel(label)) return;
+      if (visible) {
+        const added = addContentWindow(label);
+        ensureContentWindowReconcile();
+        if (added) broadcastPlayerFullState(label);
+      } else {
+        removeContentWindow(label);
+        stopContentWindowReconcileIfIdle();
+      }
+    },
+  );
+
   // Master (re)started while slave windows were already open (reload, crash
   // recovery): they never re-handshake, so discover them and re-push the full
-  // state — otherwise they keep stale lyrics/settings until the next song.
-  void reconcileContentWindows().then(() => {
-    for (const label of openContentBroadcastLabels()) {
-      broadcastPlayerFullState(label);
-    }
-  });
+  // state — reconcileContentWindows heals newly discovered windows inline.
+  void reconcileContentWindows();
 }

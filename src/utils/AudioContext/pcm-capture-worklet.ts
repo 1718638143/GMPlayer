@@ -14,8 +14,13 @@ class PCMCaptureProcessor extends AudioWorkletProcessor {
     super();
     this._buffer = new Float32Array(512);
     this._offset = 0;
+    this._stopped = false;
+    this.port.onmessage = (e) => {
+      if (e.data === "stop") this._stopped = true;
+    };
   }
   process(inputs) {
+    if (this._stopped) return false;
     const input = inputs[0];
     if (!input || !input[0] || input[0].length === 0) return true;
 

@@ -1182,6 +1182,13 @@ async function startMouseThrough() {
 
   mouseThroughActive.value = true;
 
+  // Release any previous subscription first — a lock→lock sequence would
+  // otherwise overwrite the handle and orphan the old Rust event listener.
+  if (unlistenMouseThrough) {
+    unlistenMouseThrough();
+    unlistenMouseThrough = null;
+  }
+
   // Listen for state changes from Rust
   unlistenMouseThrough = await tauri.event.listen<boolean>("mouse-through-state", (e) => {
     // e.payload = true when cursor is inside a hit region

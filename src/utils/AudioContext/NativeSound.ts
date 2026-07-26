@@ -540,8 +540,14 @@ export class NativeSound implements ISound {
         const index = listeners.indexOf(callback);
         if (index > -1) listeners.splice(index, 1);
       }
+      const onceListeners = this._onceListeners.get(event);
+      if (onceListeners) {
+        const index = onceListeners.indexOf(callback);
+        if (index > -1) onceListeners.splice(index, 1);
+      }
     } else {
       this._eventListeners.delete(event);
+      this._onceListeners.delete(event);
     }
     return this;
   }

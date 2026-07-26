@@ -1,5 +1,5 @@
 <template>
-  <div class="player-cover-container">
+  <div ref="coverContainerRef" class="player-cover-container">
     <div class="cover-stage">
       <div class="amll-close-action">
         <ControlThumb aria-label="Close player" @click="closeBigPlayer" />
@@ -346,61 +346,82 @@ const closeBigPlayer = () => {
 };
 
 // GSAP 动画
+// Scoped to this component's own buttons (a document-wide query would attach
+// to other components' .button-icon nodes and outlive this instance), and
+// removed on unmount so playerStyle toggles don't stack orphaned closures.
+const coverContainerRef = ref(null);
+const buttonAnimationCleanups = [];
+
 onMounted(() => {
-  const buttons = document.querySelectorAll(".button-icon");
+  const root = coverContainerRef.value;
+  if (!root) return;
+  const buttons = root.querySelectorAll(".button-icon");
   buttons.forEach((button) => {
-    // 悬停动画
-    button.addEventListener("mouseenter", () => {
+    const onMouseEnter = () => {
       gsap.to(button, {
         scale: 1.1,
         duration: 0.2,
         ease: "power1.out",
       });
-    });
-    button.addEventListener("mouseleave", () => {
+    };
+    const onMouseLeave = () => {
       gsap.to(button, {
         scale: 1,
         duration: 0.2,
         ease: "power1.inOut",
       });
-    });
-    // 点击动画
-    button.addEventListener("mousedown", () => {
+    };
+    const onMouseDown = () => {
       gsap.to(button, {
         scale: 0.9,
         duration: 0.1,
         ease: "power1.in",
       });
-    });
-    button.addEventListener("mouseup", () => {
+    };
+    const onMouseUp = () => {
       gsap.to(button, {
         scale: 1.1,
         duration: 0.2,
         ease: "power1.out",
       });
+    };
+    button.addEventListener("mouseenter", onMouseEnter);
+    button.addEventListener("mouseleave", onMouseLeave);
+    button.addEventListener("mousedown", onMouseDown);
+    button.addEventListener("mouseup", onMouseUp);
+    buttonAnimationCleanups.push(() => {
+      button.removeEventListener("mouseenter", onMouseEnter);
+      button.removeEventListener("mouseleave", onMouseLeave);
+      button.removeEventListener("mousedown", onMouseDown);
+      button.removeEventListener("mouseup", onMouseUp);
     });
   });
+});
+
+onUnmounted(() => {
+  buttonAnimationCleanups.forEach((cleanup) => cleanup());
+  buttonAnimationCleanups.length = 0;
 });
 </script>
 
 <style lang="scss" scoped>
 .player-cover-container {
-  /* 高度预算：控件区约 15rem + 纵向 gap 2rem + 顶部关闭手柄余量 2.5rem */
+  /* 高度预算：控件区约 15rem + 纵向 gap 2rem + 上下对称 padding 各 2.5rem */
   --cover-controls-budget: 19.5rem;
-  --cover-size: max(10rem, min(50vh, 38vw, calc(100vh - var(--cover-controls-budget) - 2.5rem)));
+  --cover-size: max(10rem, min(50vh, 38vw, calc(100vh - var(--cover-controls-budget) - 5rem)));
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2rem;
-  /* 关闭手柄绝对定位在封面上方出画区，这里预留其高度，
-     避免矮窗口下被居中布局顶出视口 */
-  padding-top: 2.5rem;
+  /* 顶部为绝对定位的关闭手柄保留出画余量（矮窗口不被居中布局顶出视口）；
+     底部等量 padding 保持视觉中心对称 */
+  padding: 2.5rem 0;
 
   @media screen and (max-height: 768px) {
-    --cover-size: max(9rem, min(45vh, 38vw, calc(100vh - var(--cover-controls-budget) - 2rem)));
+    --cover-size: max(9rem, min(45vh, 38vw, calc(100vh - var(--cover-controls-budget) - 4.5rem)));
     gap: 1.5rem;
-    padding-top: 2.25rem;
+    padding: 2.25rem 0;
   }
 
   .cover-stage {

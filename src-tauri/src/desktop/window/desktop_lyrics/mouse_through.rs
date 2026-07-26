@@ -10,13 +10,67 @@
 //! The approach is adapted from:
 //! https://github.com/codecnmc/tauri2-transparent-through
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+
+// ── Global rdev hook singleton ──────────────────────────────────────
+//
+// `rdev::listen` blocks forever and has no shutdown API, so its thread (an
+// OS-level mouse hook) is permanent once started. It MUST therefore be
+// process-wide: spawning one per `start_mouse_through` call would leak a
+// permanent hook thread on every lock toggle, with per-mouse-move CPU cost
+// growing linearly for the rest of the session.
+//
+// The hook publishes the latest cursor position into atomic slots; the
+// stoppable per-session poller threads read from there.
+
+static RDEV_HOOK_STARTED: AtomicBool = AtomicBool::new(false);
+/// Monotonic move counter — lets pollers skip work when the cursor is idle.
+static MOUSE_MOVE_SEQ: AtomicU64 = AtomicU64::new(0);
+static MOUSE_X_BITS: AtomicU64 = AtomicU64::new(0);
+static MOUSE_Y_BITS: AtomicU64 = AtomicU64::new(0);
+
+fn ensure_global_mouse_hook() {
+    if RDEV_HOOK_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let spawned = thread::Builder::new()
+        .name("mouse-through-hook".into())
+        .spawn(|| {
+            let callback = |event: rdev::Event| {
+                if let rdev::EventType::MouseMove { x, y } = event.event_type {
+                    MOUSE_X_BITS.store(x.to_bits(), Ordering::Relaxed);
+                    MOUSE_Y_BITS.store(y.to_bits(), Ordering::Relaxed);
+                    MOUSE_MOVE_SEQ.fetch_add(1, Ordering::Release);
+                }
+            };
+            if rdev::listen(callback).is_err() {
+                // Hook failed to install (e.g. missing permissions) — allow a
+                // later start to retry instead of wedging the feature.
+                RDEV_HOOK_STARTED.store(false, Ordering::SeqCst);
+            }
+        });
+    if spawned.is_err() {
+        RDEV_HOOK_STARTED.store(false, Ordering::SeqCst);
+    }
+}
+
+fn read_latest_mouse_pos(last_seen_seq: &mut u64) -> Option<(f64, f64)> {
+    let seq = MOUSE_MOVE_SEQ.load(Ordering::Acquire);
+    if seq == 0 || seq == *last_seen_seq {
+        return None;
+    }
+    *last_seen_seq = seq;
+    Some((
+        f64::from_bits(MOUSE_X_BITS.load(Ordering::Relaxed)),
+        f64::from_bits(MOUSE_Y_BITS.load(Ordering::Relaxed)),
+    ))
+}
 
 /// State shared between the mouse worker thread and Tauri commands.
 pub struct MouseThroughState {
@@ -92,29 +146,14 @@ pub fn start_mouse_through<R: Runtime>(
     let app_handle = app.clone();
     let label_owned = label.to_owned();
 
-    // Spawn the rdev listener thread.
-    let rdev_thread = thread::spawn(move || {
-        let (coord_tx, coord_rx) = mpsc::channel::<(f64, f64)>();
-
-        // Inner thread: run rdev listener.
+    // Install (or reuse) the process-wide rdev hook, then spawn the stoppable
+    // poller for this session.
+    ensure_global_mouse_hook();
+    let poller_thread = thread::spawn(move || {
         let rdev_stop = stop_rx;
-        thread::spawn(move || {
-            let tx = coord_tx;
-            let callback = move |event: rdev::Event| {
-                if let rdev::EventType::MouseMove { x, y } = event.event_type {
-                    let _ = tx.send((x, y));
-                }
-            };
-
-            // rdev::listen blocks; we can't easily interrupt it, so we rely on
-            // the outer loop checking the stop channel and the frontend calling
-            // stop. rdev does not expose a graceful shutdown, so we accept that
-            // the thread will linger until the process exits.
-            let _ = rdev::listen(callback);
-        });
-
         let mut last_emit = Instant::now();
         let mut last_state: Option<bool> = None;
+        let mut last_seen_seq = 0u64;
 
         loop {
             // Check stop signal (non-blocking).
@@ -122,15 +161,9 @@ pub fn start_mouse_through<R: Runtime>(
                 break;
             }
 
-            // Drain all pending coordinates and keep the latest.
-            let mut latest: Option<(f64, f64)> = None;
-            while let Ok(pos) = coord_rx.try_recv() {
-                latest = Some(pos);
-            }
-
-            // Throttle to ~60 FPS (16ms).
+            // Throttle to ~60 FPS (16ms); skip entirely while the cursor is idle.
             if last_emit.elapsed() >= Duration::from_millis(16) {
-                if let Some((gx, gy)) = latest {
+                if let Some((gx, gy)) = read_latest_mouse_pos(&mut last_seen_seq) {
                     let inside = is_inside_regions(&app_handle, &label_owned, gx, gy);
 
                     // Only emit when state changes to reduce IPC traffic.
@@ -142,7 +175,7 @@ pub fn start_mouse_through<R: Runtime>(
                 last_emit = Instant::now();
             }
 
-            thread::sleep(Duration::from_millis(1));
+            thread::sleep(Duration::from_millis(4));
         }
     });
 
@@ -154,7 +187,7 @@ pub fn start_mouse_through<R: Runtime>(
     }
 
     // Detach the thread; it will clean itself up when stopped.
-    let _ = rdev_thread;
+    let _ = poller_thread;
 
     Ok(())
 }

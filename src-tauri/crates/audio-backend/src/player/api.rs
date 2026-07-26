@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::thread;
 
@@ -64,6 +64,11 @@ pub struct PlayerShared {
     pub state: AtomicU8,
     pub position_ms: AtomicU64,
     pub duration_ms: AtomicU64,
+    /// True once a poll consumer has shown up (`audio_poll_events` /
+    /// `audio_set_session`). Until then the forwarder skips the per-event
+    /// clone into `event_buf` — the Channel/emit path is the live consumer and
+    /// buffering for a poller that never arrives is pure waste.
+    pub event_poll_active: AtomicBool,
     pub event_buf: parking_lot::Mutex<EventBuffer>,
     /// Event sink registered by the frontend via `audio_subscribe_events`.
     /// The forwarder streams every `AudioThreadEventMessage` here; when no
@@ -84,6 +89,7 @@ impl Player {
             state: AtomicU8::new(PlaybackState::Stopped as u8),
             position_ms: AtomicU64::new(0),
             duration_ms: AtomicU64::new(0),
+            event_poll_active: AtomicBool::new(false),
             event_buf: parking_lot::Mutex::new(EventBuffer::new(0)),
             event_channel: parking_lot::Mutex::new(None),
         });
@@ -110,7 +116,9 @@ impl Player {
                 if let Some(event) = &evt_msg.data {
                     update_shared_from_event(&shared_clone, event);
                     if should_buffer_poll_event(event) {
-                        shared_clone.event_buf.lock().push(event.clone());
+                        if shared_clone.event_poll_active.load(Ordering::Relaxed) {
+                            shared_clone.event_buf.lock().push(event.clone());
+                        }
                     } else {
                         // High-rate FFT/lowFreq frames: the next frame supersedes
                         // this one anyway, so skip the fallback global emit and
@@ -253,10 +261,12 @@ impl Player {
     }
 
     pub fn poll_events(&self, session_id: u64) -> Vec<AudioThreadEvent> {
+        self.shared.event_poll_active.store(true, Ordering::Relaxed);
         self.shared.event_buf.lock().drain(session_id)
     }
 
     pub fn set_session(&self, session_id: u64) {
+        self.shared.event_poll_active.store(true, Ordering::Relaxed);
         self.shared.event_buf.lock().reset(session_id);
     }
 

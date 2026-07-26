@@ -294,12 +294,12 @@ const closeBigPlayer = () => {
 
 <style lang="scss" scoped>
 .record {
-  /* 高度预算：控件区约 15rem + 纵向 gap 2rem + 顶部关闭手柄余量 2.5rem；
+  /* 高度预算：控件区约 15rem + 纵向 gap 2rem + 上下对称 padding 各 2.5rem；
      stage 高为封面的 1.25 倍，故预算需除以 1.25 */
   --cover-controls-budget: 19.5rem;
   --cover-size: max(
     10rem,
-    min(50vh, 38vw, calc((100vh - var(--cover-controls-budget) - 2.5rem) / 1.25))
+    min(50vh, 38vw, calc((100vh - var(--cover-controls-budget) - 5rem) / 1.18))
   );
   position: relative;
   width: 100%;
@@ -307,16 +307,18 @@ const closeBigPlayer = () => {
   flex-direction: column;
   align-items: center;
   gap: 2rem;
-  /* 为绝对定位的关闭手柄保留出画余量，避免矮窗口下被居中布局顶出视口 */
-  padding-top: 2.5rem;
+  /* 顶部为绝对定位的关闭手柄保留出画余量（矮窗口不被居中布局顶出视口）；
+     底部 padding 额外偏置 0.06×封面：唱臂预留区视觉上偏空，
+     纯几何居中会显得整体偏下，此处做光学居中（预算中 1.18 = 1.12 + 0.06） */
+  padding: 2.5rem 0 calc(2.5rem + var(--cover-size) * 0.06);
 
   @media screen and (max-height: 768px) {
     --cover-size: max(
       9rem,
-      min(45vh, 38vw, calc((100vh - var(--cover-controls-budget) - 2rem) / 1.25))
+      min(45vh, 38vw, calc((100vh - var(--cover-controls-budget) - 4.5rem) / 1.18))
     );
     gap: 1.5rem;
-    padding-top: 2.25rem;
+    padding: 2.25rem 0 calc(2.25rem + var(--cover-size) * 0.06);
   }
   &:hover {
     .control {
@@ -326,7 +328,9 @@ const closeBigPlayer = () => {
   .record-stage {
     position: relative;
     width: min(var(--cover-size), 100%);
-    aspect-ratio: 4 / 5;
+    /* 1.12 倍高：压缩唱臂预留区，唱臂与盘面重叠更贴近真实唱机，
+       同时减少顶部视觉空腔 */
+    aspect-ratio: 1 / 1.12;
     display: grid;
     place-items: end center;
 

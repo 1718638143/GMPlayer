@@ -95,6 +95,10 @@ export function usePlayerBridge() {
   const lyricIndex = ref(-1);
 
   const unlisteners: (() => void)[] = [];
+  // Bumped by disconnect(): listeners still resolving from an interrupted
+  // connect() must release themselves instead of pushing into the cleared
+  // unlisteners array (which would orphan the Tauri subscription).
+  let connectSession = 0;
   let lastAcceptedTimeSeq = 0;
   let lastAcceptedTimeSongId: number | null = null;
   // Last authoritative time anchor (already latency-compensated). The local
@@ -178,6 +182,7 @@ export function usePlayerBridge() {
   async function connect(): Promise<void> {
     const tauri = getTauri();
     if (!tauri || unlisteners.length > 0) return;
+    const session = connectSession;
 
     // Local extrapolation between the master's sparse time anchors. Skips
     // work while hidden (consumers' RAF loops are paused then anyway) and
@@ -201,56 +206,62 @@ export function usePlayerBridge() {
     document.addEventListener("visibilitychange", onVisibilityChange);
     unlisteners.push(() => document.removeEventListener("visibilitychange", onVisibilityChange));
 
+    // Registers an async-acquired listener, or releases it immediately when
+    // disconnect() ran while the listen() call was still in flight — pushing
+    // into the already-cleared array would leak the Tauri subscription.
+    const track = (unlisten: () => void): void => {
+      if (session !== connectSession) {
+        unlisten();
+        return;
+      }
+      unlisteners.push(unlisten);
+    };
+
     // Player state (song metadata, playback state, etc.)
-    const u1 = await tauri.event.listen<PlayerStatePayload>(
-      PLAYER_COMMUNICATION_EVENTS.state,
-      (e) => {
+    track(
+      await tauri.event.listen<PlayerStatePayload>(PLAYER_COMMUNICATION_EVENTS.state, (e) => {
         applyStatePayload(e.payload);
-      },
+      }),
     );
-    unlisteners.push(u1);
 
     // Time anchors (discontinuities + low-rate heartbeat; extrapolated locally)
-    const u2 = await tauri.event.listen<PlayerTimePayload>(
-      PLAYER_COMMUNICATION_EVENTS.time,
-      (e) => {
+    track(
+      await tauri.event.listen<PlayerTimePayload>(PLAYER_COMMUNICATION_EVENTS.time, (e) => {
         applyTimePayload(e.payload);
-      },
+      }),
     );
-    unlisteners.push(u2);
 
     // Lyric data (once per song)
-    const u3 = await tauri.event.listen<PlayerLyricPayload>(
-      PLAYER_COMMUNICATION_EVENTS.lyric,
-      (e) => {
+    track(
+      await tauri.event.listen<PlayerLyricPayload>(PLAYER_COMMUNICATION_EVENTS.lyric, (e) => {
         lyricData.value = e.payload;
-      },
+      }),
     );
-    unlisteners.push(u3);
 
     // Settings changes
-    const u4 = await tauri.event.listen<PlayerSettingsPayload>(
-      PLAYER_COMMUNICATION_EVENTS.settings,
-      (e) => {
+    track(
+      await tauri.event.listen<PlayerSettingsPayload>(PLAYER_COMMUNICATION_EVENTS.settings, (e) => {
         Object.assign(settings, e.payload);
-      },
+      }),
     );
-    unlisteners.push(u4);
 
     // Full state snapshot (response to slave-window-opened)
-    const u5 = await tauri.event.listen<PlayerFullStatePayload>(
-      PLAYER_COMMUNICATION_EVENTS.fullState,
-      (e) => {
-        if (isStaleTimePayload(e.payload.time)) return;
-        applyStatePayload(e.payload.state);
-        applyTimePayload(e.payload.time);
-        if (e.payload.lyric) {
-          lyricData.value = e.payload.lyric;
-        }
-        Object.assign(settings, e.payload.settings);
-      },
+    track(
+      await tauri.event.listen<PlayerFullStatePayload>(
+        PLAYER_COMMUNICATION_EVENTS.fullState,
+        (e) => {
+          if (isStaleTimePayload(e.payload.time)) return;
+          applyStatePayload(e.payload.state);
+          applyTimePayload(e.payload.time);
+          if (e.payload.lyric) {
+            lyricData.value = e.payload.lyric;
+          }
+          Object.assign(settings, e.payload.settings);
+        },
+      ),
     );
-    unlisteners.push(u5);
+
+    if (session !== connectSession) return;
 
     // Notify master that we're ready
     const routePath = window.location.hash || window.location.pathname;
@@ -275,6 +286,7 @@ export function usePlayerBridge() {
   }
 
   function disconnect(): void {
+    connectSession++;
     unlisteners.forEach((fn) => fn());
     unlisteners.length = 0;
   }
