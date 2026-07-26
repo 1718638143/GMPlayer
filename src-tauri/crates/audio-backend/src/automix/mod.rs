@@ -8,8 +8,9 @@
 /// returns full TrackAnalysis.
 use rodio::{Decoder, Source};
 use serde::{Deserialize, Serialize};
-use std::io::Cursor;
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 // ─── Input ───────────────────────────────────────────────────────────
 
@@ -234,26 +235,95 @@ use vocal::analyze_vocal_activity;
 
 // ─── Main Analysis Entry Point ─────────────────────────────────────
 
-/// Cap for the duration-hint preallocation (in mono samples): 64M samples
-/// ≈ 256 MiB of f32, covering ~24 min @ 44.1 kHz or ~11 min @ 96 kHz. A
-/// corrupt container header claiming hours must not translate into a giant
-/// blind allocation — tracks longer than the cap simply fall back to doubling
-/// growth beyond it, which is never worse than the old un-hinted behavior.
+/// Cap for the duration-hint preallocation (in mono samples). On 64-bit
+/// targets: 64M samples ≈ 256 MiB of f32, covering ~24 min @ 44.1 kHz or
+/// ~11 min @ 96 kHz. On the 32-bit Android targets (armv7/i686) the cap is
+/// 16M samples ≈ 64 MiB so a corrupt header can never turn into a blind
+/// allocation that pressures a 32-bit address space. Tracks longer than the
+/// cap simply fall back to doubling growth beyond it, which is never worse
+/// than the old un-hinted behavior.
+#[cfg(target_pointer_width = "64")]
 const MONO_PREALLOC_MAX_SAMPLES: usize = 64 << 20;
+#[cfg(not(target_pointer_width = "64"))]
+const MONO_PREALLOC_MAX_SAMPLES: usize = 16 << 20;
 
 /// Mono-sample capacity estimate from the container duration hint, with a
 /// small headroom margin (~1.6% + 1024) so hints that undershoot slightly do
 /// not push the buffer into a full doubling reallocation for the excess.
+///
+/// The estimate is clamped in f64 space BEFORE any usize arithmetic: corrupt
+/// containers can report astronomical durations (symphonia maps the MP4 v0
+/// unknown-duration sentinel to u64::MAX seconds), and the saturating float
+/// cast plus margin addition must not overflow-panic on such hints.
 fn mono_capacity_hint(duration_hint: Option<f32>, sample_rate: u32) -> usize {
     let Some(duration) = duration_hint.filter(|d| d.is_finite() && *d > 0.0) else {
         return 0;
     };
-    let frames = (duration as f64 * sample_rate as f64).ceil() as usize;
-    (frames + frames / 64 + 1024).min(MONO_PREALLOC_MAX_SAMPLES)
+    let frames = (duration as f64 * sample_rate as f64).ceil();
+    if !frames.is_finite() || frames <= 0.0 {
+        return 0;
+    }
+    let frames = frames.min(MONO_PREALLOC_MAX_SAMPLES as f64) as usize;
+    frames
+        .saturating_add(frames / 64)
+        .saturating_add(1024)
+        .min(MONO_PREALLOC_MAX_SAMPLES)
 }
 
 fn decode_audio_to_mono(audio_data: Vec<u8>) -> Result<(Vec<f32>, u32, f32), String> {
     decode_source_to_mono(Cursor::new(audio_data))
+}
+
+/// Records the first genuine I/O error seen by the streamed decode source.
+///
+/// rodio/symphonia deliberately conflate mid-stream I/O errors with normal
+/// end-of-stream (symphonia signals EOF as `IoError(UnexpectedEof)`), so a
+/// dying disk or vanished network mount would otherwise silently truncate the
+/// decoded PCM and produce a "successful" analysis over partial audio. The
+/// old whole-file `fs::read` path surfaced every read error before decoding;
+/// latching restores exactly that property for the streamed path.
+/// `ErrorKind::Interrupted` is not latched to match `read_to_end`, which
+/// transparently retries it.
+struct IoErrorLatchReader<R> {
+    inner: R,
+    latch: Arc<Mutex<Option<String>>>,
+}
+
+impl<R> IoErrorLatchReader<R> {
+    fn record(&self, err: &std::io::Error) {
+        if err.kind() == std::io::ErrorKind::Interrupted {
+            return;
+        }
+        if let Ok(mut latch) = self.latch.lock() {
+            if latch.is_none() {
+                *latch = Some(err.to_string());
+            }
+        }
+    }
+}
+
+impl<R: Read> Read for IoErrorLatchReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self.inner.read(buf) {
+            Ok(n) => Ok(n),
+            Err(err) => {
+                self.record(&err);
+                Err(err)
+            }
+        }
+    }
+}
+
+impl<R: Seek> Seek for IoErrorLatchReader<R> {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        match self.inner.seek(pos) {
+            Ok(offset) => Ok(offset),
+            Err(err) => {
+                self.record(&err);
+                Err(err)
+            }
+        }
+    }
 }
 
 fn decode_source_to_mono<R>(input: R) -> Result<(Vec<f32>, u32, f32), String>
@@ -429,7 +499,18 @@ pub fn analyze_audio_file(
     // Cursor) for the entire full-track decode, adding the whole file size on
     // top of the PCM buffer at the peak.
     let file = std::fs::File::open(path.as_ref()).map_err(|e| format!("read audio source: {e}"))?;
-    let (samples, sample_rate, duration) = decode_source_to_mono(std::io::BufReader::new(file))?;
+    let io_error = Arc::new(Mutex::new(None));
+    let reader = IoErrorLatchReader {
+        inner: std::io::BufReader::new(file),
+        latch: Arc::clone(&io_error),
+    };
+    let decoded = decode_source_to_mono(reader);
+    // Surface underlying disk errors exactly like the old whole-file read did,
+    // whether or not the decoder managed to limp past them with partial PCM.
+    if let Some(err) = io_error.lock().ok().and_then(|mut latch| latch.take()) {
+        return Err(format!("read audio source: {err}"));
+    }
+    let (samples, sample_rate, duration) = decoded?;
     Ok(analyze_mono_samples(
         &samples,
         sample_rate,
@@ -528,6 +609,81 @@ mod tests {
         assert_eq!(
             mono_capacity_hint(Some(36_000.0), 192_000),
             MONO_PREALLOC_MAX_SAMPLES
+        );
+
+        // Astronomical hints (symphonia maps the MP4 v0 unknown-duration
+        // sentinel to u64::MAX seconds) must clamp without overflow-panicking
+        // in dev/test builds, on 32-bit and 64-bit targets alike.
+        assert_eq!(
+            mono_capacity_hint(Some(f32::MAX), u32::MAX),
+            MONO_PREALLOC_MAX_SAMPLES
+        );
+        assert_eq!(
+            mono_capacity_hint(Some(u64::MAX as f32), 44_100),
+            MONO_PREALLOC_MAX_SAMPLES
+        );
+    }
+
+    /// Read+Seek source that fails with a genuine I/O error after a byte budget,
+    /// simulating a dying disk / vanished network mount mid-decode.
+    struct FailAfter {
+        inner: Cursor<Vec<u8>>,
+        remaining: usize,
+    }
+
+    impl Read for FailAfter {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.remaining == 0 {
+                return Err(std::io::Error::other("injected io failure"));
+            }
+            let limit = buf.len().min(self.remaining);
+            let read = self.inner.read(&mut buf[..limit])?;
+            self.remaining -= read;
+            Ok(read)
+        }
+    }
+
+    impl Seek for FailAfter {
+        fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+            self.inner.seek(pos)
+        }
+    }
+
+    #[test]
+    fn mid_stream_io_errors_are_latched() {
+        let bytes = wav_bytes(44_100, 2, 44_100);
+        let budget = bytes.len() / 2;
+        let latch = Arc::new(Mutex::new(None));
+        let reader = IoErrorLatchReader {
+            inner: FailAfter {
+                inner: Cursor::new(bytes),
+                remaining: budget,
+            },
+            latch: Arc::clone(&latch),
+        };
+
+        // rodio/symphonia conflate the mid-stream failure with end-of-stream,
+        // so the decode itself may "succeed" with truncated PCM — the latch is
+        // what lets analyze_audio_file surface it as a read error.
+        let _ = decode_source_to_mono(reader);
+        let recorded = latch
+            .lock()
+            .unwrap()
+            .take()
+            .expect("io error must be latched");
+        assert!(
+            recorded.contains("injected io failure"),
+            "unexpected latched error: {recorded}"
+        );
+    }
+
+    #[test]
+    fn analyze_audio_file_surfaces_unreadable_source_as_read_error() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let err = analyze_audio_file(dir.path(), false).expect_err("directory must not analyze");
+        assert!(
+            err.starts_with("read audio source:"),
+            "unexpected error: {err}"
         );
     }
 }
