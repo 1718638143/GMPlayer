@@ -416,10 +416,10 @@ onMounted(() => {
     position: relative;
     width: 100%;
     height: 100%;
-    border-radius: 12px;
+    border-radius: var(--radius-panel);
     transition:
-      transform 0.5s ease-out,
-      filter 0.5s ease-out;
+      transform var(--duration-500) var(--ease-out),
+      filter var(--duration-500) var(--ease-out);
     &.pause {
       transform: scale(0.95);
     }
@@ -430,7 +430,7 @@ onMounted(() => {
     .album {
       width: 100%;
       height: 100%;
-      border-radius: 12px;
+      border-radius: var(--radius-panel);
     }
   }
   .controls {
@@ -485,14 +485,14 @@ onMounted(() => {
           font-size: 1.75rem;
           cursor: pointer;
           opacity: 1;
-          transition: opacity 0.2s ease;
+          transition: opacity var(--duration-200) var(--ease-out);
         }
 
         .more-button {
           font-size: 1.75rem;
           cursor: pointer;
           opacity: 1;
-          transition: opacity 0.2s ease;
+          transition: opacity var(--duration-200) var(--ease-out);
           &:hover {
             opacity: 1;
           }
@@ -534,7 +534,7 @@ onMounted(() => {
           opacity: 1;
           font-size: 0.75rem;
           padding: 2px 8px;
-          border-radius: 4px;
+          border-radius: var(--radius-xs);
           white-space: nowrap;
           .wave-icon {
             width: 14px;
@@ -573,8 +573,8 @@ onMounted(() => {
         opacity: 1;
         cursor: pointer;
         transition:
-          opacity 0.2s ease,
-          transform 0.1s ease-out;
+          opacity var(--duration-200) var(--ease-out),
+          transform var(--duration-150) var(--ease-out);
         &:hover {
           opacity: 1;
         }

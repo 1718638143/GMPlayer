@@ -335,7 +335,7 @@ const closeBigPlayer = () => {
       transform: rotate(-20deg);
       transform-origin: calc(var(--cover-size) * 0.045) calc(var(--cover-size) * 0.045);
       z-index: 1;
-      transition: all 0.3s;
+      transition: all var(--duration-300) var(--ease-out);
       &.play {
         transform: rotate(0);
       }
@@ -466,13 +466,13 @@ const closeBigPlayer = () => {
           font-size: 1.75rem;
           cursor: pointer;
           opacity: 1;
-          transition: opacity 0.2s ease;
+          transition: opacity var(--duration-200) var(--ease-out);
         }
         .more-button {
           font-size: 1.75rem;
           cursor: pointer;
           opacity: 1;
-          transition: opacity 0.2s ease;
+          transition: opacity var(--duration-200) var(--ease-out);
           &:hover {
             opacity: 1;
           }
@@ -527,8 +527,8 @@ const closeBigPlayer = () => {
         opacity: 1;
         cursor: pointer;
         transition:
-          opacity 0.2s ease,
-          transform 0.1s ease-out;
+          opacity var(--duration-200) var(--ease-out),
+          transform var(--duration-150) var(--ease-out);
         &:hover {
           opacity: 1;
         }

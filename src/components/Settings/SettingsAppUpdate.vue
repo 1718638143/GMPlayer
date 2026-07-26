@@ -441,7 +441,7 @@ const handleInstallUpdate = () => {
     .release-notes-body {
       max-height: 320px;
       border: 1px solid color-mix(in srgb, var(--n-border-color) 70%, transparent);
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       overflow: hidden;
 
       :deep(.release-notes-markdown) {

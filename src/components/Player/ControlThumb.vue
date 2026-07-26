@@ -100,7 +100,7 @@ const handlePointerLeave = () => {
     height: 8px;
     border: none;
     padding: 0;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     background-color: color-mix(in srgb, currentColor 16%, transparent);
     color: inherit;
     cursor: none;
@@ -121,7 +121,7 @@ const handlePointerLeave = () => {
       height: 0;
       margin-top: 0;
       background-color: currentColor;
-      border-radius: 10px;
+      border-radius: var(--radius-lg);
       mix-blend-mode: plus-lighter;
       rotate: 0deg;
       transition:

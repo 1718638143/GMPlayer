@@ -117,7 +117,7 @@ defineExpose({
 .add-playlist {
   .v-enter-active,
   .v-leave-active {
-    transition: opacity 0.3s ease;
+    transition: opacity var(--duration-300) var(--ease-out);
   }
 
   .v-enter-from,
@@ -129,9 +129,9 @@ defineExpose({
       display: flex;
       align-items: center;
       padding: 12px;
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       cursor: pointer;
-      transition: all 0.3s;
+      transition: all var(--duration-300) var(--ease-out);
       &:hover {
         background-color: var(--n-border-color);
       }

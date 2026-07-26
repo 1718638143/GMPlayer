@@ -63,7 +63,7 @@ watch(
 <style lang="scss" scoped>
 .v-enter-active,
 .v-leave-active {
-  transition: all 0.3s ease-in-out;
+  transition: all var(--duration-300) var(--ease-in-out);
 }
 
 .v-enter-from,
@@ -76,7 +76,7 @@ watch(
   animation: breathe 5s ease-in-out infinite;
   .point {
     margin-right: 4px;
-    transition: all 0.3s;
+    transition: all var(--duration-300) var(--ease-out);
     &.hidden {
       opacity: 0.2;
     }

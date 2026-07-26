@@ -699,7 +699,7 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
     height: 5px;
     background: rgba(255, 255, 255, 0.3);
     border-radius: 3px;
-    transition: background 0.2s ease;
+    transition: background var(--duration-200) var(--ease-out);
   }
 
   &:active .handle-bar {
@@ -761,7 +761,7 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
   grid-row: controls;
   grid-column: info-side;
   align-self: center;
-  transition: opacity 0.25s 0.25s;
+  transition: opacity var(--duration-200) var(--ease-out) 0.25s;
   padding-left: 12px;
   min-width: 0;
   overflow: visible;
@@ -868,7 +868,7 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
 .mobile-lyric {
   grid-row: controls / -1;
   grid-column: 1 / -1;
-  transition: opacity 0.5s 0.5s;
+  transition: opacity var(--duration-500) var(--ease-out) 0.5s;
   opacity: 1;
   min-height: 0;
   position: relative;
@@ -925,7 +925,7 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.5s 0.5s;
+  transition: opacity var(--duration-500) var(--ease-out) 0.5s;
   opacity: 1;
 
   .mobile-ui-empty {
@@ -955,7 +955,7 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
 .mobile-big-controls {
   grid-row: controls-view;
   grid-column: 2 / 3;
-  transition: opacity 0.5s;
+  transition: opacity var(--duration-500) var(--ease-out);
   opacity: 0;
   min-width: 0;
   z-index: 2;
@@ -1099,7 +1099,7 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
   flex: 0 0 auto;
   padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: inherit;
   background: rgba(255, 255, 255, 0.06);
   font: inherit;
@@ -1174,7 +1174,7 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
   grid-template-columns: 30px 48px minmax(0, 1fr) auto 36px;
   align-items: center;
   gap: 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px 8px 8px 4px;
   margin-bottom: 8px;
   box-sizing: border-box;
@@ -1324,7 +1324,7 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
 // Default state (Layer 1 visible):
 .mobile-small-controls {
   opacity: 0;
-  transition: opacity 0.5s;
+  transition: opacity var(--duration-500) var(--ease-out);
   pointer-events: none;
 }
 
@@ -1335,7 +1335,7 @@ defineExpose({ phonyBigCoverRef, phonySmallCoverRef, nameWrapperRef, nameTextRef
 .mobile-lyric,
 .no-lyrics {
   opacity: 0;
-  transition: opacity 0.5s;
+  transition: opacity var(--duration-500) var(--ease-out);
   pointer-events: none;
 }
 

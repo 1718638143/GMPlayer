@@ -96,7 +96,7 @@ const setting = settingStore();
   display: flex !important;
   justify-content: center;
   align-items: center;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: all var(--duration-300) cubic-bezier(0.34, 1.56, 0.64, 1);
   flex-direction: column;
   will-change: opacity;
 
@@ -142,7 +142,7 @@ const setting = settingStore();
         --n-text-color-pressed: var(--main-cover-color);
         --n-border: none;
         border: none;
-        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        transition: all var(--duration-300) cubic-bezier(0.34, 1.56, 0.64, 1);
         will-change: transform, background-color;
 
         &:hover {
@@ -164,11 +164,11 @@ const setting = settingStore();
       --n-height: 42px;
       color: var(--main-cover-color);
       margin: 0 12px;
-      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      transition: all var(--duration-300) cubic-bezier(0.34, 1.56, 0.64, 1);
       will-change: transform, background-color;
 
       .n-icon {
-        transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        transition: all var(--duration-200) cubic-bezier(0.34, 1.56, 0.64, 1);
         color: var(--main-cover-color);
         will-change: transform, opacity;
       }
@@ -191,9 +191,9 @@ const setting = settingStore();
     font-size: 24px;
     cursor: pointer;
     padding: 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     opacity: 0.4;
-    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: all var(--duration-300) cubic-bezier(0.34, 1.56, 0.64, 1);
     will-change: transform, opacity, background-color;
 
     &:hover {
@@ -213,7 +213,7 @@ const setting = settingStore();
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity var(--duration-300) cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .fade-enter-from,

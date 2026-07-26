@@ -50,8 +50,8 @@ const lyricClasses = computed(() => ({
   transform: translateZ(0) scale(1);
   will-change: transform, opacity;
   transition:
-    transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
-    opacity 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform var(--duration-500) cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity var(--duration-500) cubic-bezier(0.34, 1.56, 0.64, 1);
 
   @media (max-width: 768px) {
     height: 100%;

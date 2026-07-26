@@ -193,7 +193,7 @@ onBeforeUnmount(() => {
 .playlist-drawer {
   width: 400px !important;
   border-radius: 0;
-  transition: width 0.3s;
+  transition: width var(--duration-300) var(--ease-out);
 
   .n-drawer-header {
     height: 70px;
@@ -240,7 +240,7 @@ onBeforeUnmount(() => {
 .playlist-drawer {
   .v-enter-active,
   .v-leave-active {
-    transition: opacity 0.3s ease;
+    transition: opacity var(--duration-300) var(--ease-out);
   }
 
   .v-enter-from,
@@ -276,7 +276,7 @@ onBeforeUnmount(() => {
     border-radius: var(--radius-md);
     cursor: pointer;
     margin-bottom: 12px;
-    transition: all 0.3s;
+    transition: all var(--duration-300) var(--ease-out);
 
     &:nth-last-of-type(1) {
       margin-bottom: 0;
@@ -341,7 +341,7 @@ onBeforeUnmount(() => {
           height: 16px;
           background-color: var(--cover-main-color);
           border-radius: var(--radius-xs);
-          transition: all 0.3s;
+          transition: all var(--duration-300) var(--ease-out);
           animation: lineMove 1s ease-in-out infinite;
         }
 
@@ -385,7 +385,7 @@ onBeforeUnmount(() => {
         border-radius: var(--radius-md);
         right: 0;
         opacity: 0;
-        transition: all 0.3s;
+        transition: all var(--duration-300) var(--ease-out);
         color: #999;
         padding: 6px;
 

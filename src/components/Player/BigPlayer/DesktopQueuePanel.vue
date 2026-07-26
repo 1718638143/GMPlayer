@@ -149,7 +149,7 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   padding: 18px 14px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--main-cover-color);
   background: rgba(20, 20, 20, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -185,7 +185,7 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: inherit;
   background: rgba(255, 255, 255, 0.06);
   font: inherit;
@@ -260,7 +260,7 @@ onBeforeUnmount(() => {
   grid-template-columns: 30px 48px minmax(0, 1fr) auto 36px;
   align-items: center;
   gap: 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px 8px 8px 4px;
   margin-bottom: 8px;
   box-sizing: border-box;
@@ -369,8 +369,8 @@ onBeforeUnmount(() => {
   opacity: 0;
   cursor: pointer;
   transition:
-    opacity 0.2s ease,
-    background-color 0.2s ease,
+    opacity var(--duration-200) var(--ease-out),
+    background-color var(--duration-200) var(--ease-out),
     transform 0.18s ease;
 
   &:hover,
