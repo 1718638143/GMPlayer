@@ -222,19 +222,41 @@ export function formatLrcTime(timeMs: number): string {
   return `${min < 10 ? "0" : ""}${min}:${sec < 10 ? "0" : ""}${sec}.${cs < 10 ? "0" : ""}${cs}`;
 }
 
+export type WordTimedLyricFormat = "yrc" | "qrc" | "eslrc";
+
+// [lineStartMs,lineDurationMs] line header used by both YRC and QRC
+const WORD_TIMED_LINE_HEADER_REGEX = /^\[\d+,\d+\]/m;
+// YRC word token: (startMs,durationMs,0)
+const YRC_WORD_TOKEN_REGEX = /\(\d+,\d+,\d+\)/;
+// QRC / Lyricify Syllable word token: (startMs,durationMs)
+const QRC_WORD_TOKEN_REGEX = /\(\d+,\d+\)/;
+// ESLrc places [mm:ss.xx] timestamps directly after word text
+const ESLRC_INLINE_TIMESTAMP_REGEX = /[^\s[\]]\[\d{1,3}:\d{1,2}(?:\.\d{1,3})?\]/;
+
+/**
+ * 检测逐字歌词文本的具体格式
+ * @param content 歌词内容
+ * @returns 'yrc' | 'qrc' | 'eslrc'，无法识别为逐字格式时返回 null
+ */
+export function detectWordTimedLyricFormat(content: string): WordTimedLyricFormat | null {
+  if (!content) return null;
+
+  if (WORD_TIMED_LINE_HEADER_REGEX.test(content)) {
+    // 3-field tokens are YRC; check first because a QRC-style 2-field token
+    // never appears inside a 3-field token text.
+    if (YRC_WORD_TOKEN_REGEX.test(content)) return "yrc";
+    if (QRC_WORD_TOKEN_REGEX.test(content)) return "qrc";
+    return null;
+  }
+
+  return ESLRC_INLINE_TIMESTAMP_REGEX.test(content) ? "eslrc" : null;
+}
+
 /**
  * 检测 YRC/QRC 格式类型
  * @param content 歌词内容
  * @returns 'yrc' 或 'qrc'
  */
 export function detectYrcType(content: string): "yrc" | "qrc" {
-  // Check for YRC markers first (more specific)
-  if (content.includes("[x-trans") || content.includes("[merge]")) {
-    return "yrc";
-  }
-  // QRC uses < > delimiters with comma-separated values
-  if (content.indexOf("<") !== -1 && content.indexOf(",") !== -1 && content.indexOf(">") !== -1) {
-    return "qrc";
-  }
-  return "qrc";
+  return detectWordTimedLyricFormat(content) === "qrc" ? "qrc" : "yrc";
 }
