@@ -1315,6 +1315,7 @@ export class TransitionStateMachine {
         this._analysisCache,
         { volumeNorm: this._settingsVolumeNorm, bpmMatch: this._settingsBpmMatch },
         () => this._state,
+        (entry) => this._addToCache(entry),
       );
       // Store pre-buffered analysis for _finalizeCrossfadeParams()
       if (this._preBufferManager.preBufferedAnalysis) {
@@ -2149,6 +2150,7 @@ export class TransitionStateMachine {
       this._analysisCache,
       { volumeNorm: this._settingsVolumeNorm, bpmMatch: this._settingsBpmMatch },
       () => this._state,
+      (entry) => this._addToCache(entry),
     );
   }
 

@@ -33,15 +33,18 @@ export class PreBufferManager {
   /**
    * Start pre-buffering the next track. Fire-and-forget.
    * @param musicStore - Music store reference
-   * @param analysisCache - Analysis cache map
+   * @param analysisCache - Analysis cache map (read-only here; writes go
+   * through `addToCache` so the owner's size cap always applies)
    * @param settings - Current settings
    * @param stateGetter - Function to check current AutoMix state (for bail-out)
+   * @param addToCache - Owner's capped cache-insert path
    */
   startPreBuffer(
     musicStore: any,
     analysisCache: Map<number, CachedAnalysis>,
     settings: { volumeNorm: boolean; bpmMatch: boolean },
     stateGetter: () => string,
+    addToCache: (entry: CachedAnalysis) => void,
   ): void {
     if (this._isBuffering || this._preBuffered) return;
 
@@ -131,9 +134,11 @@ export class PreBufferManager {
               const analysis = await analyzeTrack(blobUrl, { analyzeBPM: settings.bpmMatch });
               preBufferedAnalysis = { songId: nextSong.id, analysis };
               // Share with the state machine's cache so a discarded pre-buffer
-              // doesn't force a full re-decode of the same track later.
-              // (The cache is size-capped by its owner after every crossfade.)
-              analysisCache.set(nextSong.id, preBufferedAnalysis);
+              // doesn't force a full re-decode of the same track later. Must
+              // go through the owner's capped insert path: a direct Map.set
+              // would bypass eviction, and repeated skip/cancel churn (no
+              // crossfade ever completing) would grow the cache unbounded.
+              addToCache(preBufferedAnalysis);
             }
           } catch (err) {
             if (IS_DEV) console.warn("PreBufferManager: Analysis failed", err);
