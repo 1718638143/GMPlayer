@@ -98,7 +98,7 @@ const toLikeComment = () => {
 <style lang="scss" scoped>
 .v-enter-active,
 .v-leave-active {
-  transition: opacity 0.3s ease;
+  transition: opacity var(--duration-300) var(--ease-out);
 }
 
 .v-enter-from,
@@ -107,7 +107,7 @@ const toLikeComment = () => {
 }
 .comment {
   margin-bottom: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   :deep(.n-card__content) {
     display: flex;
     flex-direction: row;
@@ -172,7 +172,7 @@ const toLikeComment = () => {
         .name {
           font-weight: bold;
           cursor: pointer;
-          transition: all 0.3s;
+          transition: all var(--duration-300) var(--ease-out);
           &:hover {
             color: var(--main-color);
           }
@@ -181,7 +181,7 @@ const toLikeComment = () => {
       .beReplied {
         width: 100%;
         padding: 4px 8px;
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         background-color: var(--n-border-color);
         font-size: 13px;
         margin-top: 6px;
@@ -189,7 +189,7 @@ const toLikeComment = () => {
         .name {
           font-weight: bold;
           cursor: pointer;
-          transition: all 0.3s;
+          transition: all var(--duration-300) var(--ease-out);
           &:hover {
             color: var(--main-color);
           }
@@ -213,7 +213,7 @@ const toLikeComment = () => {
         .like {
           margin-left: auto;
           cursor: pointer;
-          transition: all 0.3s;
+          transition: all var(--duration-300) var(--ease-out);
           opacity: 0.6;
           &:hover {
             color: var(--main-color);
@@ -238,7 +238,7 @@ const toLikeComment = () => {
 .skeleton {
   width: 100%;
   height: 120px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-bottom: 12px;
 }
 </style>
