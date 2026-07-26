@@ -34,6 +34,7 @@
       </div>
       <n-virtual-list
         v-if="music.getPlaylists.length"
+        ref="virtualListRef"
         class="queue-scroll"
         :items="queueRows"
         :item-size="49"
@@ -99,6 +100,8 @@ import AllArtists from "@/components/DataList/AllArtists.vue";
 
 const music = musicStore();
 
+const virtualListRef = ref(null);
+
 const currentSong = computed(() => music.getPlaySongData);
 const queueRows = computed(() =>
   music.getPlaylists.map((item, index) => ({
@@ -111,6 +114,16 @@ const queueRows = computed(() =>
 const changeIndex = (index) => {
   music.selectPlaySongByIndex(index);
 };
+
+// 滚动到当前播放曲目（供抽屉等容器在打开时调用）
+const scrollToCurrent = () => {
+  const index = music.persistData.playSongIndex;
+  if (index >= 0 && index < music.getPlaylists.length) {
+    virtualListRef.value?.scrollTo({ index });
+  }
+};
+
+defineExpose({ scrollToCurrent });
 </script>
 
 <style lang="scss" scoped>
