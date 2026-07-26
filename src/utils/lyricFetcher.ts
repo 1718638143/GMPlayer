@@ -3,7 +3,10 @@ import { parseLyricData, formatAsLrc } from "@/utils/LyricsProcessor";
 import type { ParsedLyricResult } from "@/utils/LyricsProcessor";
 import useSettingDataStore from "@/store/settingData";
 
-const MAX_CACHE_SIZE = 50;
+// Keep this small: cached entries are mutated in place downstream (the store
+// attaches lrcAMData / processedLyrics to them), so each slot can grow to
+// hundreds of KB for word-by-word tracks. 50 slots plateaued at ~10-25 MB.
+const MAX_CACHE_SIZE = 20;
 
 interface CacheEntry {
   result: ParsedLyricResult;

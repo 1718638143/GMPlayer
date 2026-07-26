@@ -257,6 +257,12 @@ export class CrossfadeScheduler {
     // Now safe to remove spectral filters
     this._spectralEQ.cleanupWithReconnect(this._outgoingGain, this._incomingGain);
 
+    // Release gain refs — holding the outgoing gain past this point keeps the
+    // unloaded track's audio-graph anchor (and anything wired to it) reachable
+    // until the next scheduleFullCrossfade overwrites the fields.
+    this._outgoingGain = null;
+    this._incomingGain = null;
+
     if (IS_DEV) {
       console.log("CrossfadeScheduler: Crossfade complete");
     }
@@ -473,6 +479,11 @@ export class CrossfadeScheduler {
 
     // Clean up spectral filters
     this._spectralEQ.cleanupWithReconnect(this._outgoingGain, this._incomingGain);
+
+    // Release gain refs (see _finish) — the 100ms ramps above are already
+    // scheduled on the AudioParams and are unaffected by dropping the JS refs.
+    this._outgoingGain = null;
+    this._incomingGain = null;
 
     this._isActive = false;
     this._isPaused = false;

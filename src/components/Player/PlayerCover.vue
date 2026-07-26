@@ -1,5 +1,5 @@
 <template>
-  <div class="player-cover-container">
+  <div ref="coverContainerRef" class="player-cover-container">
     <div class="cover-stage">
       <div class="amll-close-action">
         <ControlThumb aria-label="Close player" @click="closeBigPlayer" />
@@ -346,40 +346,61 @@ const closeBigPlayer = () => {
 };
 
 // GSAP 动画
+// Scoped to this component's own buttons (a document-wide query would attach
+// to other components' .button-icon nodes and outlive this instance), and
+// removed on unmount so playerStyle toggles don't stack orphaned closures.
+const coverContainerRef = ref(null);
+const buttonAnimationCleanups = [];
+
 onMounted(() => {
-  const buttons = document.querySelectorAll(".button-icon");
+  const root = coverContainerRef.value;
+  if (!root) return;
+  const buttons = root.querySelectorAll(".button-icon");
   buttons.forEach((button) => {
-    // 悬停动画
-    button.addEventListener("mouseenter", () => {
+    const onMouseEnter = () => {
       gsap.to(button, {
         scale: 1.1,
         duration: 0.2,
         ease: "power1.out",
       });
-    });
-    button.addEventListener("mouseleave", () => {
+    };
+    const onMouseLeave = () => {
       gsap.to(button, {
         scale: 1,
         duration: 0.2,
         ease: "power1.inOut",
       });
-    });
-    // 点击动画
-    button.addEventListener("mousedown", () => {
+    };
+    const onMouseDown = () => {
       gsap.to(button, {
         scale: 0.9,
         duration: 0.1,
         ease: "power1.in",
       });
-    });
-    button.addEventListener("mouseup", () => {
+    };
+    const onMouseUp = () => {
       gsap.to(button, {
         scale: 1.1,
         duration: 0.2,
         ease: "power1.out",
       });
+    };
+    button.addEventListener("mouseenter", onMouseEnter);
+    button.addEventListener("mouseleave", onMouseLeave);
+    button.addEventListener("mousedown", onMouseDown);
+    button.addEventListener("mouseup", onMouseUp);
+    buttonAnimationCleanups.push(() => {
+      button.removeEventListener("mouseenter", onMouseEnter);
+      button.removeEventListener("mouseleave", onMouseLeave);
+      button.removeEventListener("mousedown", onMouseDown);
+      button.removeEventListener("mouseup", onMouseUp);
     });
   });
+});
+
+onUnmounted(() => {
+  buttonAnimationCleanups.forEach((cleanup) => cleanup());
+  buttonAnimationCleanups.length = 0;
 });
 </script>
 

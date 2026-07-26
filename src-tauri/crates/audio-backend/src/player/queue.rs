@@ -99,7 +99,17 @@ impl PlaybackQueue {
             return;
         }
 
-        self.songs.push(song);
+        // Fallthrough (index matches no entry and isn't an append): replace an
+        // existing entry with the same identity instead of appending — this
+        // path runs on every AutoMix crossfade completion, and unconditional
+        // pushes would grow the queue for the whole session whenever the
+        // frontend replaced the prefill window mid-crossfade.
+        let song_id = song.get_id();
+        if let Some(pos) = self.songs.iter().position(|s| s.get_id() == song_id) {
+            self.songs[pos] = song;
+        } else {
+            self.songs.push(song);
+        }
         self.current_index = index;
     }
 
@@ -174,6 +184,23 @@ mod tests {
         queue.set_index(3);
         assert!(queue.prev().is_none());
         assert_eq!(queue.current_index(), 3);
+    }
+
+    #[test]
+    fn replace_or_set_current_does_not_grow_on_repeated_mismatch() {
+        let mut queue = queue_with(vec![local("a", 10), local("b", 11)], true);
+
+        // Index matches no orig_order and is not an append — first call may add.
+        queue.replace_or_set_current(20, local("x", 20));
+        let len_after_first = queue.playlist_cloned().len();
+        assert_eq!(queue.current_index(), 20);
+
+        // Repeated crossfade completions for the same identity must replace,
+        // not append — an unbounded queue otherwise grows for the session.
+        queue.replace_or_set_current(21, local("x", 21));
+        queue.replace_or_set_current(22, local("x", 22));
+        assert_eq!(queue.playlist_cloned().len(), len_after_first);
+        assert_eq!(queue.current_index(), 22);
     }
 
     #[test]

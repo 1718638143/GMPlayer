@@ -120,6 +120,12 @@ let syncFrameId = 0;
 let lyricFrameId = 0;
 let lastLyricFrameTime = -1;
 let lastSubmittedLyricTime = -1;
+// Park the AMLL spring/DOM work while the big player is closed: it slides
+// off-screen via translateY(100%), so per-frame updates are invisible. The
+// grace period covers the close transition; reopening resyncs via
+// scheduleCurrentTimeSync (same path as returning from a hidden tab).
+let lyricParkedSince = -1;
+const LYRIC_PARK_DELAY_MS = 1000;
 
 function applyPlayerSettings(player: DomLyricPlayer) {
   player.setEnableBlur(setting.lyricsBlur);
@@ -150,6 +156,16 @@ function updateLyricPlayer(frameTime: number) {
 
   const delta = lastLyricFrameTime < 0 ? 0 : frameTime - lastLyricFrameTime;
   lastLyricFrameTime = frameTime;
+
+  if (!music.showBigPlayer) {
+    if (lyricParkedSince < 0) lyricParkedSince = frameTime;
+    if (frameTime - lyricParkedSince > LYRIC_PARK_DELAY_MS) {
+      lyricFrameId = requestAnimationFrame(updateLyricPlayer);
+      return;
+    }
+  } else {
+    lyricParkedSince = -1;
+  }
 
   if (playState.value) {
     const lyricTime = Math.round(readPlaybackPosition() * 1000 + (setting.lyricTimeOffset ?? 0));
@@ -249,6 +265,15 @@ onBeforeUnmount(() => {
 watch(
   () => playState.value,
   (playing) => applyPlayback(playing),
+);
+
+// Reopening the big player after a parked stretch: jump the lyric view to the
+// live position instead of letting the spring animate across the gap.
+watch(
+  () => music.showBigPlayer,
+  (visible) => {
+    if (visible) scheduleCurrentTimeSync();
+  },
 );
 
 watch(

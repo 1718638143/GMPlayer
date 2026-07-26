@@ -241,7 +241,16 @@ fn decode_audio_to_mono(audio_data: Vec<u8>) -> Result<(Vec<f32>, u32, f32), Str
     let sample_rate = decoder.sample_rate().get();
     let duration_hint = decoder.total_duration().map(|d| d.as_secs_f32());
 
+    // Pre-size from the duration hint: pushing tens of millions of samples
+    // through doubling reallocs transiently doubles the footprint and leaves
+    // oversized freed segments in the allocator. Cap the reservation so a
+    // bogus hint can't trigger a huge upfront allocation.
     let mut mono = Vec::new();
+    if let Some(secs) = duration_hint.filter(|d| *d > 0.0) {
+        const MAX_RESERVE_SECS: f32 = 900.0;
+        let frames = (secs.min(MAX_RESERVE_SECS) * sample_rate as f32) as usize + 1024;
+        mono.reserve_exact(frames);
+    }
     let mut frame_sum = 0.0f32;
     let mut frame_channel = 0usize;
 

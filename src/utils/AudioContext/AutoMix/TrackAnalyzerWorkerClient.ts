@@ -39,6 +39,11 @@ function getWorker(): Worker | null {
         pending.reject(new Error("Worker error"));
         pendingRequests.delete(id);
       }
+      // Retire the broken worker so the next request spawns a fresh one —
+      // keeping it would make every subsequent analysis burn its full
+      // timeout against a dead worker.
+      worker?.terminate();
+      worker = null;
     };
 
     if (IS_DEV) {
@@ -148,5 +153,10 @@ export function terminateAnalysisWorker(): void {
     worker.terminate();
     worker = null;
   }
-  pendingRequests.clear();
+  // Reject instead of dropping: a cleared-but-unsettled promise retains its
+  // await continuations (and whatever sounds/buffers they capture) forever.
+  for (const [id, pending] of pendingRequests) {
+    pending.reject(new Error("Analysis worker terminated"));
+    pendingRequests.delete(id);
+  }
 }
