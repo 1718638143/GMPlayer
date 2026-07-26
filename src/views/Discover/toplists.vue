@@ -98,7 +98,7 @@ onMounted(() => {
 .toplists {
   .v-enter-active,
   .v-leave-active {
-    transition: opacity 0.3s ease;
+    transition: opacity var(--duration-300) var(--ease-out);
   }
 
   .v-enter-from,
@@ -124,8 +124,8 @@ onMounted(() => {
       }
     }
     .item {
-      border-radius: 8px;
-      transition: all 0.3s;
+      border-radius: var(--radius-md);
+      transition: all var(--duration-300) var(--ease-out);
       overflow: hidden;
       cursor: pointer;
       &:active {
@@ -141,7 +141,7 @@ onMounted(() => {
           width: 160px;
           height: 160px;
           min-width: 160px;
-          border-radius: 8px;
+          border-radius: var(--radius-md);
         }
         .update {
           position: absolute;
@@ -153,7 +153,7 @@ onMounted(() => {
           -webkit-backdrop-filter: blur(40px);
           backdrop-filter: blur(40px);
           padding: 4px 8px;
-          border-radius: 8px 0 8px 0;
+          border-radius: var(--radius-md) 0 var(--radius-md) 0;
         }
       }
       .data {
