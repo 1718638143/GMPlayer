@@ -87,7 +87,7 @@
     </Transition>
     <!-- 右键菜单 -->
     <n-dropdown
-      style="--n-font-size: 14px; --n-border-radius: 6px"
+      style="--n-font-size: 14px; --n-border-radius: var(--radius-sm)"
       placement="bottom-start"
       trigger="manual"
       size="large"
