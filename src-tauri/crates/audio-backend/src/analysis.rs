@@ -101,10 +101,6 @@ fn analysis_loop(
         cfg.smoothing_factor,
     );
 
-    // `spectrum` is only a scratch buffer for the processor's normalized WASM
-    // compatibility path. Native IPC emits raw FFT magnitudes from
-    // `proc.fft.raw_spectrum()`, matching AMLL's fftDataAtom data flow.
-    let mut spectrum = vec![0.0f32; 2048];
     let mut last_analysis = Instant::now();
     let mut last_fft_emit = Instant::now() - FFT_EMIT_INTERVAL;
     let mut pending_mono_samples = 0usize;
@@ -147,7 +143,11 @@ fn analysis_loop(
         {
             let now = Instant::now();
             let delta_ms = now.duration_since(last_analysis).as_secs_f32() * 1000.0;
-            let low_freq = proc.process_frame(delta_ms, &mut spectrum);
+            // Native IPC emits raw FFT magnitudes from `proc.fft.raw_spectrum()`
+            // (matching AMLL's fftDataAtom data flow), so run the raw pipeline:
+            // it skips the WASM-only 0-255 normalization/EMA pass whose output
+            // nothing on this path ever reads.
+            let low_freq = proc.process_frame_raw(delta_ms);
 
             let drained = ((delta_ms / 1000.0) * current_sample_rate.max(1) as f32) as usize;
             pending_mono_samples = pending_mono_samples.saturating_sub(drained.max(1));
