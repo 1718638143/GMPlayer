@@ -311,7 +311,7 @@ onMounted(() => {
     margin-top: 40px;
     width: 140px;
     font-size: 16px;
-    transition: all 0.3s;
+    transition: all var(--duration-300) var(--ease-out);
     &:hover {
       background-color: var(--main-second-color);
       color: var(--main-color);
@@ -336,7 +336,7 @@ onMounted(() => {
 }
 .tag {
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all var(--duration-300) var(--ease-out);
   &:hover {
     background-color: var(--main-second-color);
     color: var(--main-color);

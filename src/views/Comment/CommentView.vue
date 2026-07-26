@@ -145,7 +145,7 @@ watch(
 .comment {
   .up-enter-active,
   .up-leave-active {
-    transition: all 0.3s ease;
+    transition: all var(--duration-300) var(--ease-out);
   }
 
   .up-enter-from,
@@ -163,7 +163,7 @@ watch(
       background-color: var(--n-border-color);
     }
     :deep(.n-card__content) {
-      transition: all 0.3s;
+      transition: all var(--duration-300) var(--ease-out);
       font-size: 12px;
     }
   }
@@ -177,7 +177,7 @@ watch(
     }
     .song {
       margin-top: 20px;
-      border-radius: 8px;
+      border-radius: var(--radius-md);
     }
   }
   .hotComments,

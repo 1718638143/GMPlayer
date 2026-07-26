@@ -44,7 +44,7 @@ defineEmits(["navigate"]);
   padding: 0;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color var(--duration-200) var(--ease-out);
   overflow: hidden;
   white-space: nowrap;
 
@@ -76,7 +76,7 @@ defineEmits(["navigate"]);
   min-width: 22px;
   border-radius: var(--radius-sm);
   object-fit: cover;
-  transition: border-radius 0.2s;
+  transition: border-radius var(--duration-200) var(--ease-out);
 
   .collapsed & {
     border-radius: var(--radius-pill);

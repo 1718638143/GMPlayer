@@ -277,7 +277,7 @@ watch(
     &::-webkit-scrollbar-thumb {
       min-height: 28px;
       border: 2px solid transparent;
-      border-radius: 999px;
+      border-radius: var(--radius-pill);
       background-clip: content-box;
       background-color: transparent;
     }
@@ -374,7 +374,7 @@ watch(
         min-width: 20px;
         height: 19px;
         padding: 0 6px;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         background-color: color-mix(in srgb, var(--n-text-color) 8%, transparent);
         font-size: 11px;
         font-variant-numeric: tabular-nums;

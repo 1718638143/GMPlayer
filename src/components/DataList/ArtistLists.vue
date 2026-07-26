@@ -71,7 +71,7 @@
     </Transition>
     <!-- 右键菜单 -->
     <n-dropdown
-      style="--n-font-size: 14px; --n-border-radius: 6px"
+      style="--n-font-size: 14px; --n-border-radius: var(--radius-sm)"
       placement="bottom-start"
       trigger="manual"
       size="large"
@@ -243,7 +243,7 @@ onMounted(() => {
   padding-top: 20px;
   .v-enter-active,
   .v-leave-active {
-    transition: opacity 0.3s ease;
+    transition: opacity var(--duration-300) var(--ease-out);
   }
 
   .v-enter-from,
@@ -260,13 +260,13 @@ onMounted(() => {
       justify-content: center;
       box-shadow: 0 4px 16px 0 #00000020;
       border-radius: 50%;
-      transition: all 0.3s;
+      transition: all var(--duration-300) var(--ease-out);
       .coverImg {
         filter: brightness(1);
         transform: scale(1);
         width: 100%;
         height: 100%;
-        transition: all 0.3s;
+        transition: all var(--duration-300) var(--ease-out);
         z-index: 1;
         .cover-loading {
           position: relative;
@@ -298,14 +298,14 @@ onMounted(() => {
         z-index: 0;
         background-size: cover;
         aspect-ratio: 1/1;
-        transition: opacity 0.3s;
+        transition: opacity var(--duration-300) var(--ease-out);
       }
       .n-icon {
         opacity: 0;
         transform: scale(0.8);
         position: absolute;
         color: #fff;
-        transition: all 0.3s;
+        transition: all var(--duration-300) var(--ease-out);
         z-index: 1;
       }
       &:hover {
@@ -331,7 +331,7 @@ onMounted(() => {
     .name {
       margin-top: 14px;
       font-size: 16px;
-      transition: all 0.3s;
+      transition: all var(--duration-300) var(--ease-out);
       cursor: pointer;
       &:hover {
         color: var(--main-color);

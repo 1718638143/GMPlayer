@@ -25,7 +25,7 @@
       ref="queueListRef"
       class="queue-list"
       :items="queueRows"
-      :item-size="73"
+      :item-size="52"
       :item-resizable="true"
       key-field="key"
       :show-scrollbar="false"
@@ -33,7 +33,16 @@
       <template #default="{ item: row }">
         <div
           :id="`desktop-queue-${row.index}`"
-          :class="['queue-song', { 'is-current': row.index === music.persistData.playSongIndex }]"
+          :class="[
+            'queue-song',
+            {
+              'is-current': row.index === music.persistData.playSongIndex,
+              'row-odd': row.index % 2 === 0,
+              'row-even': row.index % 2 === 1,
+              'row-first': row.index === 0,
+              'row-last': row.index === music.getPlaylists.length - 1,
+            },
+          ]"
           role="button"
           tabindex="0"
           @click="changeQueueIndex(row.index)"
@@ -54,7 +63,7 @@
           </div>
           <div class="queue-duration" v-if="row.item.time">{{ row.item.time }}</div>
           <button class="queue-remove" type="button" @click.stop="music.removeSong(row.index)">
-            <n-icon size="20" :component="DeleteRound" />
+            <n-icon size="17" :component="DeleteRound" />
           </button>
         </div>
       </template>
@@ -149,7 +158,7 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   padding: 18px 14px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--main-cover-color);
   background: rgba(20, 20, 20, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -185,7 +194,7 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: inherit;
   background: rgba(255, 255, 255, 0.06);
   font: inherit;
@@ -254,39 +263,46 @@ onBeforeUnmount(() => {
   }
 }
 
+// 与 QueuePanel / HistoryView 一致的斑马纹连续列表，仅将中性色换成
+// 封面自适应的 --main-cover-color（面板叠在专辑封面之上）
 .queue-song {
-  min-height: 64px;
+  min-height: 52px;
   display: grid;
-  grid-template-columns: 30px 48px minmax(0, 1fr) auto 36px;
+  grid-template-columns: 26px 38px minmax(0, 1fr) auto 28px;
   align-items: center;
   gap: 10px;
-  border-radius: 8px;
-  padding: 8px 8px 8px 4px;
-  margin-bottom: 8px;
+  border-radius: 0;
+  padding: 6px 8px;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.075);
-  border: 1px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
-  transition:
-    background-color 0.22s ease,
-    border-color 0.22s ease,
-    transform 0.18s ease;
+  transition: background-color var(--duration-150) var(--ease-out);
+
+  &.row-first {
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+
+  &.row-last {
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+  }
+
+  &.row-odd {
+    background: color-mix(in srgb, var(--main-cover-color) 5%, transparent);
+  }
+
+  &.row-even {
+    background: color-mix(in srgb, var(--main-cover-color) 9%, transparent);
+  }
 
   &:hover {
-    background: rgba(255, 255, 255, 0.115);
+    background: color-mix(in srgb, var(--main-cover-color) 14%, transparent);
 
     .queue-remove {
       opacity: 0.82;
     }
   }
 
-  &:active {
-    transform: scale(0.985);
-  }
-
   &.is-current {
-    background: color-mix(in srgb, var(--main-cover-color) 18%, transparent);
-    border-color: color-mix(in srgb, var(--main-cover-color) 42%, transparent);
+    background: color-mix(in srgb, var(--main-cover-color) 22%, transparent);
   }
 }
 
@@ -325,11 +341,10 @@ onBeforeUnmount(() => {
 }
 
 .queue-cover {
-  width: 48px;
-  height: 48px;
-  border-radius: 7px;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
   object-fit: cover;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
 }
 
 .queue-info {
@@ -337,13 +352,13 @@ onBeforeUnmount(() => {
 
   .queue-name {
     font-weight: 650;
-    font-size: 0.95rem;
-    line-height: 1.2;
+    font-size: 0.85rem;
+    line-height: 1.25;
   }
 
   .queue-artists {
-    margin-top: 5px;
-    font-size: 0.78rem;
+    margin-top: 2px;
+    font-size: 0.75rem;
     opacity: 0.62;
   }
 }
@@ -359,9 +374,9 @@ onBeforeUnmount(() => {
   border: none;
   background: transparent;
   color: var(--main-cover-color);
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
   padding: 0;
   display: flex;
   align-items: center;
@@ -369,18 +384,13 @@ onBeforeUnmount(() => {
   opacity: 0;
   cursor: pointer;
   transition:
-    opacity 0.2s ease,
-    background-color 0.2s ease,
-    transform 0.18s ease;
+    opacity var(--duration-200) var(--ease-out),
+    background-color var(--duration-200) var(--ease-out);
 
   &:hover,
   &:focus-visible {
     opacity: 1;
-    background: rgba(255, 255, 255, 0.14);
-  }
-
-  &:active {
-    transform: scale(0.94);
+    background: color-mix(in srgb, var(--main-cover-color) 14%, transparent);
   }
 }
 

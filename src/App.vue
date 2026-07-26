@@ -48,7 +48,7 @@
               >
                 <n-back-top
                   :bottom="music.getPlaylists[0] && music.showPlayBar ? 100 : 40"
-                  style="transition: all 0.3s; z-index: 999"
+                  style="transition: all var(--duration-300) var(--ease-out); z-index: 999"
                 />
                 <router-view v-slot="{ Component, route }">
                   <transition name="fade-scale" mode="out-in">
@@ -445,8 +445,8 @@ onBeforeUnmount(() => {
 
 .main-content {
   transition:
-    transform 0.3s,
-    opacity 0.3s;
+    transform var(--duration-300) var(--ease-out),
+    opacity var(--duration-300) var(--ease-out);
 
   .bigplayer-on {
     opacity: 0;

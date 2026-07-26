@@ -69,7 +69,8 @@ const grayStyles = computed(() => ({
   backgroundColor: "#00000030",
   WebkitBackdropFilter: "blur(80px)",
   backdropFilter: "blur(80px)",
-  transition: "backdrop-filter 0.5s ease, background-color 0.5s ease",
+  transition:
+    "backdrop-filter var(--duration-500) var(--ease-out), background-color var(--duration-500) var(--ease-out)",
 }));
 </script>
 
@@ -125,7 +126,7 @@ const grayStyles = computed(() => ({
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity var(--duration-300) cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .fade-enter-from,

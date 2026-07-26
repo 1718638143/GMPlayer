@@ -193,7 +193,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   opacity: 0.6;
   pointer-events: none;
-  transition: opacity 0.3s;
+  transition: opacity var(--duration-300) var(--ease-out);
   mask: linear-gradient(
     90deg,
     hsla(0, 0%, 100%, 0) 0,

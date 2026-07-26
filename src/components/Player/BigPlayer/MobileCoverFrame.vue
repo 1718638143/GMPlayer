@@ -125,7 +125,7 @@ function onImgError(): void {
     // Start fully transparent; fade in once loaded so there is never a
     // jarring "snap" where the old artwork is replaced by a blank frame.
     opacity: 0;
-    transition: opacity 0.35s ease;
+    transition: opacity var(--duration-400) var(--ease-out);
 
     &.loaded {
       opacity: 1;
@@ -161,7 +161,7 @@ function onImgError(): void {
   // ── Shimmer fade-out transition ─────────────────────────────────────────────
 
   .shimmer-fade-leave-active {
-    transition: opacity 0.4s ease;
+    transition: opacity var(--duration-400) var(--ease-out);
   }
 
   .shimmer-fade-leave-to {

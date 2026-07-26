@@ -330,7 +330,7 @@ watch(
       width: 100%;
       aspect-ratio: 1 / 1;
       border-radius: var(--radius-md);
-      transition: transform 0.3s;
+      transition: transform var(--duration-300) var(--ease-out);
       filter: drop-shadow(0 16px 28px rgba(var(--content-panel-accent-rgb, 0, 0, 0), 0.22));
 
       &:active {

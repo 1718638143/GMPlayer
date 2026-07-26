@@ -517,7 +517,7 @@ onUnmounted(() => {
   height: 100%;
   overflow: hidden;
   z-index: -2;
-  transition: filter 0.5s ease;
+  transition: filter var(--duration-500) var(--ease-out);
   will-change: filter, opacity;
 }
 
@@ -568,8 +568,8 @@ onUnmounted(() => {
     border: none;
     color: rgba(255, 255, 255, 0.4);
     cursor: pointer;
-    border-radius: 6px;
-    transition: all 0.15s ease;
+    border-radius: var(--radius-sm);
+    transition: all var(--duration-150) var(--ease-out);
 
     &:hover {
       background: rgba(255, 255, 255, 0.1);
@@ -605,7 +605,7 @@ onUnmounted(() => {
   .cover {
     width: 52px;
     height: 52px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     object-fit: cover;
     flex-shrink: 0;
     background: rgba(255, 255, 255, 0.05);
@@ -673,7 +673,7 @@ onUnmounted(() => {
   cursor: pointer;
   padding: 6px;
   border-radius: 50%;
-  transition: all 0.15s ease;
+  transition: all var(--duration-150) var(--ease-out);
 
   &:hover {
     background: rgba(255, 255, 255, 0.1);
@@ -710,7 +710,7 @@ onUnmounted(() => {
 
 .expand-fade-enter-active,
 .expand-fade-leave-active {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--duration-300) var(--ease-in-out);
 }
 
 .expand-fade-enter-from,
@@ -737,7 +737,7 @@ onUnmounted(() => {
   bottom: 0;
   display: flex;
   flex-direction: column;
-  transition: opacity 0.35s ease;
+  transition: opacity var(--duration-400) var(--ease-out);
 }
 
 .layer-cover {
@@ -784,7 +784,7 @@ onUnmounted(() => {
     cursor: pointer;
     padding: 4px;
     border-radius: 50%;
-    transition: all 0.2s ease;
+    transition: all var(--duration-200) var(--ease-out);
     margin-top: 4px;
 
     &:hover {

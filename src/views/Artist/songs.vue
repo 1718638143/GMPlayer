@@ -220,7 +220,7 @@ watch(
   .latest-cover {
     width: 100%;
     aspect-ratio: 1;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     object-fit: cover;
     box-shadow: 0 14px 28px rgb(0 0 0 / 12%);
   }
@@ -282,7 +282,7 @@ watch(
   .rank-cover {
     width: 44px;
     height: 44px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     object-fit: cover;
   }
 
@@ -313,7 +313,7 @@ watch(
     margin-top: 40px;
     width: 140px;
     font-size: 16px;
-    transition: all 0.3s;
+    transition: all var(--duration-300) var(--ease-out);
 
     &:hover {
       background-color: var(--main-second-color);

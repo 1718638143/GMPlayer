@@ -286,7 +286,7 @@ watch(
   .mainVideo {
     flex: 1;
     :deep(.plyr) {
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       overflow: hidden;
     }
     .info {
@@ -313,7 +313,7 @@ watch(
           flex-direction: row;
           align-items: center;
           cursor: pointer;
-          transition: all 0.3s;
+          transition: all var(--duration-300) var(--ease-out);
           &::after {
             content: "·";
             margin: 0 6px;

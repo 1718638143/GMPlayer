@@ -63,8 +63,8 @@ defineEmits<{
       justify-content: center;
       font-size: 40px;
       opacity: 0.3;
-      border-radius: 8px;
-      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      border-radius: var(--radius-md);
+      transition: all var(--duration-300) cubic-bezier(0.34, 1.56, 0.64, 1);
       cursor: pointer;
       will-change: transform, opacity, background-color;
 

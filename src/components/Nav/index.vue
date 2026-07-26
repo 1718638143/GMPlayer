@@ -128,12 +128,12 @@ nav {
         padding: 3px;
         cursor: pointer;
         transition:
-          background-color 0.2s,
-          transform 0.2s;
+          background-color var(--duration-200) var(--ease-out),
+          transform var(--duration-200) var(--ease-out);
 
         @media (min-width: 640px) {
           &:hover {
-            background-color: rgba(0, 0, 0, 0.05);
+            background-color: var(--hover-overlay);
           }
         }
 
@@ -173,12 +173,12 @@ nav {
       -webkit-backdrop-filter: blur(18px) saturate(160%);
       backdrop-filter: blur(18px) saturate(160%);
       transition:
-        background-color 0.2s,
-        transform 0.2s,
-        color 0.2s;
+        background-color var(--duration-200) var(--ease-out),
+        transform var(--duration-200) var(--ease-out),
+        color var(--duration-200) var(--ease-out);
 
       &:hover {
-        background-color: rgba(0, 0, 0, 0.05);
+        background-color: var(--hover-overlay);
       }
 
       &:active {

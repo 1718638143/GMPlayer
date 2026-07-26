@@ -467,7 +467,7 @@ function preventRefresh(event: KeyboardEvent) {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-150) var(--ease-out);
 
   &:hover {
     background: var(--hover-bg);
@@ -481,7 +481,7 @@ function preventRefresh(event: KeyboardEvent) {
 .cover {
   width: 36px;
   height: 36px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   object-fit: cover;
   flex-shrink: 0;
   background: var(--cover-bg);
@@ -541,7 +541,7 @@ function preventRefresh(event: KeyboardEvent) {
   cursor: pointer;
   padding: 6px;
   border-radius: 50%;
-  transition: all 0.15s ease;
+  transition: all var(--duration-150) var(--ease-out);
 
   &:hover {
     background: var(--ctrl-hover-bg);
@@ -610,7 +610,7 @@ function preventRefresh(event: KeyboardEvent) {
   --bouncing-slider-icon-gap: 0;
 
   :deep(.inner) {
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background-color: var(--slider-track);
   }
 
@@ -643,7 +643,7 @@ function preventRefresh(event: KeyboardEvent) {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-150) var(--ease-out);
   flex-shrink: 0;
 
   &:hover {

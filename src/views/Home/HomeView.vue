@@ -768,7 +768,7 @@ onBeforeUnmount(() => {
     width: 44px;
     height: 44px;
     object-fit: cover;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
 
   &:hover,

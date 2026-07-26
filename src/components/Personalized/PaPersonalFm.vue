@@ -193,7 +193,7 @@ onMounted(() => {
   z-index: 2;
   background: rgba(14, 14, 15, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
@@ -295,13 +295,13 @@ onMounted(() => {
   padding: 0;
   color: inherit;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   transition:
-    color 160ms ease,
-    background-color 160ms ease,
-    border-color 160ms ease,
-    transform 160ms ease;
+    color var(--duration-150) ease,
+    background-color var(--duration-150) ease,
+    border-color var(--duration-150) ease,
+    transform var(--duration-150) ease;
 }
 
 .control-button:hover {

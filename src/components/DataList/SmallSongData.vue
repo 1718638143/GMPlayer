@@ -106,14 +106,14 @@ onMounted(() => {
   align-items: center;
   .pic {
     margin-right: 12px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     min-width: 48px;
   }
   .name {
     line-height: 1.6;
     .n-text {
       font-size: 18px;
-      transition: all 0.3s;
+      transition: all var(--duration-300) var(--ease-out);
       cursor: pointer;
       &:hover {
         color: var(--main-color);
