@@ -96,26 +96,110 @@ function resolveLineEnd(
   return endTime;
 }
 
-function resolveWordTime(
+interface ResolvedWordTime {
+  startTime: number;
+  endTime: number;
+}
+
+/**
+ * 判断一行的 words 是否携带可用的逐字时间轴。
+ * 至少存在一个正时长的 word，或存在两个不同的起始时间，才视为可用；
+ * 否则（全部缺失/全部相同起点且零时长）按退化数据处理。
+ */
+function hasUsableWordTiming(words: readonly TimedSourceWord[]): boolean {
+  let firstStart: number | undefined;
+  for (let i = 0; i < words.length; i++) {
+    const start = finiteTime(words[i].startTime);
+    const end = finiteTime(words[i].endTime);
+    if (start !== undefined && end !== undefined && end > start) return true;
+    if (start !== undefined) {
+      if (firstStart === undefined) {
+        firstStart = start;
+      } else if (start !== firstStart) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * 退化数据兜底：按可见字符数把行时长均匀分配给每个 word，
+ * 保证渲染端仍能得到递进的逐字时间，而不是整行同时高亮。
+ */
+function distributeWordTimesEvenly(
   words: readonly TimedSourceWord[],
-  index: number,
   lineStartTime: number,
   lineEndTime: number,
-) {
-  const word = words[index];
-  const startTime = finiteTime(word.startTime) ?? lineStartTime;
-  let endTime = finiteTime(word.endTime);
+): ResolvedWordTime[] {
+  const len = words.length;
+  const result: ResolvedWordTime[] = [];
+  result.length = len;
 
-  if (endTime === undefined || endTime <= startTime) {
-    const nextStart = finiteTime(words[index + 1]?.startTime);
-    endTime = nextStart !== undefined && nextStart > startTime ? nextStart : lineEndTime;
+  const weights: number[] = [];
+  weights.length = len;
+  let totalWeight = 0;
+  for (let i = 0; i < len; i++) {
+    const weight = (words[i].word ?? "").trim().length;
+    weights[i] = weight;
+    totalWeight += weight;
   }
 
-  if (endTime <= startTime) {
-    endTime = startTime + MIN_LINE_DURATION_MS;
+  const span = Math.max(0, lineEndTime - lineStartTime);
+  let cursor = lineStartTime;
+  for (let i = 0; i < len; i++) {
+    const weight = totalWeight > 0 ? weights[i] : 1;
+    const denominator = totalWeight > 0 ? totalWeight : len;
+    const duration = (span * weight) / denominator;
+    const endTime = i === len - 1 ? lineEndTime : cursor + duration;
+    result[i] = { startTime: cursor, endTime };
+    cursor = endTime;
   }
 
-  return { startTime, endTime };
+  return result;
+}
+
+/**
+ * 解析一行内全部 word 的起止时间。
+ * 时间缺失或非递增时，回退顺序为：下一个 word 的开始时间 →（末尾 word）行结束时间 → 零时长。
+ * 不再把中间 word 兜底到行结束时间——那会让多个 word 同时覆盖整行，
+ * 造成逐字歌词整行一起高亮。
+ */
+function resolveLineWordTimes(
+  words: readonly TimedSourceWord[],
+  lineStartTime: number,
+  lineEndTime: number,
+): ResolvedWordTime[] {
+  if (!hasUsableWordTiming(words)) {
+    return distributeWordTimesEvenly(words, lineStartTime, lineEndTime);
+  }
+
+  const len = words.length;
+  const result: ResolvedWordTime[] = [];
+  result.length = len;
+
+  let prevEnd = lineStartTime;
+  for (let i = 0; i < len; i++) {
+    const word = words[i];
+    const startTime = finiteTime(word.startTime) ?? prevEnd;
+    let endTime = finiteTime(word.endTime);
+
+    if (endTime === undefined || endTime <= startTime) {
+      const nextStart = finiteTime(words[i + 1]?.startTime);
+      if (nextStart !== undefined && nextStart > startTime) {
+        endTime = nextStart;
+      } else if (i === len - 1 && lineEndTime > startTime) {
+        endTime = lineEndTime;
+      } else {
+        endTime = startTime;
+      }
+    }
+
+    result[i] = { startTime, endTime };
+    prevEnd = endTime;
+  }
+
+  return result;
 }
 
 /**
@@ -228,6 +312,7 @@ export const parseYrcLines = (yrcData: LyricLine[]): ParsedYrcLine[] => {
     const lineEndTime = resolveLineEnd(yrcData, i, lineStartTime, false);
     const time = msToS(lineStartTime);
     const endTime = msToS(lineEndTime);
+    const wordTimes = resolveLineWordTimes(words, lineStartTime, lineEndTime);
 
     // Build content array and string in one pass
     const content: ParsedYrcLine["content"] = [];
@@ -236,7 +321,7 @@ export const parseYrcLines = (yrcData: LyricLine[]): ParsedYrcLine[] => {
 
     for (let j = 0; j < wordsLen; j++) {
       const word = words[j];
-      const wordTime = resolveWordTime(words, j, lineStartTime, lineEndTime);
+      const wordTime = wordTimes[j];
       const wordText = word.word;
       // Preserve original word text including trailing spaces.
       // TTML lyrics rely on trailing spaces to separate words;
@@ -458,8 +543,11 @@ export const buildAMLLData = (
     const wordsLen = words.length;
 
     const firstWord = wordsLen > 0 ? words[0] : null;
-    const startTime = firstWord ? firstWord.startTime : resolveLineStart(line);
+    const startTime = firstWord
+      ? (finiteTime(firstWord.startTime) ?? resolveLineStart(line))
+      : resolveLineStart(line);
     const endTime = resolveLineEnd(lrcData, i, startTime, true);
+    const wordTimes = resolveLineWordTimes(words, startTime, endTime);
 
     // Build words array efficiently
     const resultWords: AMLLLine["words"] = [];
@@ -467,7 +555,7 @@ export const buildAMLLData = (
 
     for (let j = 0; j < wordsLen; j++) {
       const w = words[j];
-      const wordTime = resolveWordTime(words, j, startTime, endTime);
+      const wordTime = wordTimes[j];
       resultWords[j] = {
         word: w.word,
         startTime: wordTime.startTime,
@@ -532,6 +620,7 @@ export function convertToAMLL(lines: InputLyricLine[]): AMLLLine[] {
     const wordsLen = sourceWords.length;
     const startTime = resolveLineStart(l);
     const endTime = resolveLineEnd(lines, i, startTime, false);
+    const wordTimes = resolveLineWordTimes(sourceWords, startTime, endTime);
 
     // Build words array
     const words: AMLLLine["words"] = [];
@@ -539,7 +628,7 @@ export function convertToAMLL(lines: InputLyricLine[]): AMLLLine[] {
 
     for (let j = 0; j < wordsLen; j++) {
       const w = sourceWords[j];
-      const wordTime = resolveWordTime(sourceWords, j, startTime, endTime);
+      const wordTime = wordTimes[j];
       words[j] = {
         startTime: wordTime.startTime,
         endTime: wordTime.endTime,

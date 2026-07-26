@@ -4,10 +4,10 @@
  */
 
 import request from "@/utils/request";
-import { parseQrc, parseTTML, parseYrc } from "@applemusic-like-lyrics/lyric";
+import { parseEslrc, parseQrc, parseTTML, parseYrc } from "@applemusic-like-lyrics/lyric";
 import type { TTMLLyric } from "@applemusic-like-lyrics/lyric";
 import {
-  detectYrcType,
+  detectWordTimedLyricFormat,
   detectLrcTimestampMode,
   formatLrcTime,
   parseFirstLrcTimestamp,
@@ -330,21 +330,22 @@ export class LyricService {
             );
 
             try {
-              // 判断内容是否是yrc或qrc格式，并选择对应的解析器
+              // 判断内容是yrc、qrc还是eslrc格式，并选择对应的解析器
               let parsedLyric;
 
               // 使用内容检测歌词类型
               const content = result.yrc.lyric;
-              const contentType = detectYrcType(content);
+              const contentType = detectWordTimedLyricFormat(content) ?? "yrc";
 
-              if (contentType === "yrc") {
-                // 使用YRC解析器
-                parsedLyric = parseYrc(content);
-                console.log(`[LyricService] Using YRC parser for id: ${id}`);
-              } else {
-                // 使用QRC解析器
+              if (contentType === "qrc") {
                 parsedLyric = parseQrc(content);
                 console.log(`[LyricService] Using QRC parser for id: ${id}`);
+              } else if (contentType === "eslrc") {
+                parsedLyric = parseEslrc(content);
+                console.log(`[LyricService] Using ESLrc parser for id: ${id}`);
+              } else {
+                parsedLyric = parseYrc(content);
+                console.log(`[LyricService] Using YRC parser for id: ${id}`);
               }
 
               if (parsedLyric && parsedLyric.length > 0) {

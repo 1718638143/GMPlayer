@@ -4,7 +4,9 @@
  */
 
 import {
+  parseEslrc as parseAMLLEslrc,
   parseLrc as parseAMLLLrc,
+  parseQrc as parseAMLLQrc,
   parseYrc as parseAMLLYrc,
   type LyricLine as AMLLParsedLyricLine,
 } from "@applemusic-like-lyrics/lyric";
@@ -15,14 +17,27 @@ import {
   buildAMLLData,
 } from "./parser/formatParser";
 import { alignByIndex } from "./alignment";
-import { normalizeLrcTimestampText } from "./timeUtils";
+import { normalizeLrcTimestampText, detectWordTimedLyricFormat } from "./timeUtils";
 import type { RawLyricData, ParsedLyricResult } from "./types";
 
 type ParsedSourceLine = AMLLParsedLyricLine;
 
 const parseLrcText = (lyricText: string): ParsedSourceLine[] =>
   parseAMLLLrc(normalizeLrcTimestampText(lyricText));
-const parseYrcText = (lyricText: string): ParsedSourceLine[] => parseAMLLYrc(lyricText);
+
+// The yrc slot is not always NCM YRC: some lyric sources deliver QRC or ESLrc
+// word-timed content through it. Running the YRC parser on those produces
+// empty/wordless lines, so pick the parser by detected format instead.
+const parseYrcText = (lyricText: string): ParsedSourceLine[] => {
+  switch (detectWordTimedLyricFormat(lyricText)) {
+    case "qrc":
+      return parseAMLLQrc(lyricText);
+    case "eslrc":
+      return parseAMLLEslrc(lyricText);
+    default:
+      return parseAMLLYrc(lyricText);
+  }
+};
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -292,6 +307,14 @@ export const parseLyricData = (data: RawLyricData | null): ParsedLyricResult => 
       result.yrcAMData = result.hasTTML
         ? yrcParsedRawLines
         : buildAMLLData(yrcParsedRawLines, effectiveYrcTranSource, effectiveYrcRomaSource);
+
+      // The yrc slot yielded no usable word-timed lines (unrecognized format or
+      // wordless content). Downgrade to line-timed lyrics so consumers fall back
+      // to the LRC data instead of reading empty word arrays.
+      if (!result.hasTTML && result.yrc.length === 0) {
+        result.hasYrc = false;
+        result.yrcAMData = [];
+      }
     }
   } catch {
     return createEmptyLyricResult();
