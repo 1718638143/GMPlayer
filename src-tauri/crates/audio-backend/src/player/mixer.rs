@@ -558,14 +558,14 @@ impl DeckRuntime {
             let avail = self.current_block.len() - self.current_index;
             let run = (samples - written).min(avail);
             let src = &self.current_block[self.current_index..self.current_index + run];
+            // `extend` over a slice iterator is TrustedLen-specialized: one
+            // reserve, then straight writes with no per-element capacity check,
+            // which keeps this run vectorizable (a push loop re-checks capacity
+            // every sample).
             if gain == 1.0 {
-                for &s in src {
-                    dst.push(s.clamp(-1.0, 1.0));
-                }
+                dst.extend(src.iter().map(|&s| s.clamp(-1.0, 1.0)));
             } else {
-                for &s in src {
-                    dst.push((s * gain).clamp(-1.0, 1.0));
-                }
+                dst.extend(src.iter().map(|&s| (s * gain).clamp(-1.0, 1.0)));
             }
             self.current_index += run;
             written += run;

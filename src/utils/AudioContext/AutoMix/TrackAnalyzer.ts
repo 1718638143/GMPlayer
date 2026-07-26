@@ -195,6 +195,25 @@ async function decodeBlob(blobUrl: string, ctx: AudioContext): Promise<AudioBuff
 }
 
 /**
+ * Decode and immediately mix down to mono inside a narrow scope, so the
+ * multi-channel AudioBuffer (~2× the mono PCM for stereo, ~85MB for a 4-min
+ * 44.1kHz track) becomes collectable as soon as this helper returns, instead
+ * of staying pinned by the caller's async frame for the entire Worker
+ * analysis (up to 30s).
+ */
+async function decodeToMonoPcm(
+  sourceUrl: string,
+  ctx: AudioContext,
+): Promise<{ monoData: Float32Array; sampleRate: number; duration: number }> {
+  const buffer = await decodeBlob(sourceUrl, ctx);
+  return {
+    monoData: mixToMono(buffer),
+    sampleRate: buffer.sampleRate,
+    duration: buffer.duration,
+  };
+}
+
+/**
  * Mix AudioBuffer to mono Float32Array.
  */
 function mixToMono(buffer: AudioBuffer): Float32Array {
@@ -461,13 +480,11 @@ export async function analyzeTrack(
     return workerClient.analyzeBytesViaWorker(fetchResult.bytes, extension, analyzeBPM);
   }
 
-  // Step 1: decode on main thread using global AudioContext when available.
-  const buffer = await decodeBlob(sourceUrl, ctx);
-
-  // Step 2: mix to mono
-  const monoData = mixToMono(buffer);
-  const sampleRate = buffer.sampleRate;
-  const duration = buffer.duration;
+  // Steps 1-2: decode on main thread using the global AudioContext and mix
+  // to mono. Done inside a helper so the decoded AudioBuffer is released for
+  // GC before the analysis phase below runs (identical samples — only the
+  // buffer's lifetime changes).
+  const { monoData, sampleRate, duration } = await decodeToMonoPcm(sourceUrl, ctx);
 
   // Step 3: dispatch to Worker or fall back
   if (workerClient?.hasAnalysisWorker()) {

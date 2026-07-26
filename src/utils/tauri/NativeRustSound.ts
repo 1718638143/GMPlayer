@@ -115,6 +115,10 @@ export class NativeRustSound implements ISound {
    */
   private _seenEventSeq: Set<number> = new Set();
   private _seenEventSeqOrder: number[] = [];
+  /** Index of the oldest live entry in `_seenEventSeqOrder` — eviction moves
+   * this head forward instead of `Array#shift`, which is O(window) per event
+   * once the window is full (i.e. for every event after the first ~512). */
+  private _seenEventSeqHead = 0;
 
   /** Track metadata from SyncStatus / LoadAudio. */
   private _musicInfo: DisplayAudioInfo | null = null;
@@ -728,9 +732,16 @@ export class NativeRustSound implements ISound {
 
     this._seenEventSeq.add(seq);
     this._seenEventSeqOrder.push(seq);
-    while (this._seenEventSeqOrder.length > SEEN_EVENT_SEQ_LIMIT) {
-      const oldSeq = this._seenEventSeqOrder.shift();
+    while (this._seenEventSeqOrder.length - this._seenEventSeqHead > SEEN_EVENT_SEQ_LIMIT) {
+      const oldSeq = this._seenEventSeqOrder[this._seenEventSeqHead];
+      this._seenEventSeqHead++;
       if (oldSeq !== undefined) this._seenEventSeq.delete(oldSeq);
+    }
+    // Drop the consumed prefix once it dominates the array so the backing
+    // storage stays bounded at ~2× the dedup window.
+    if (this._seenEventSeqHead >= SEEN_EVENT_SEQ_LIMIT) {
+      this._seenEventSeqOrder = this._seenEventSeqOrder.slice(this._seenEventSeqHead);
+      this._seenEventSeqHead = 0;
     }
     return false;
   }
@@ -1219,6 +1230,7 @@ export class NativeRustSound implements ISound {
     this._onceEvents = {};
     this._seenEventSeq.clear();
     this._seenEventSeqOrder.length = 0;
+    this._seenEventSeqHead = 0;
     this._state.playlist = [];
     this._musicInfo = null;
     this._quality = null;
