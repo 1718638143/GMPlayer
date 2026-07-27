@@ -26,6 +26,15 @@ const ACCENT_ENABLE_GRADIENT: u32 = 1;
 #[cfg(target_os = "windows")]
 const ACCENT_ENABLE_ACRYLICBLURBEHIND: u32 = 4;
 
+/// Option 1 prototype toggle. When true, the Windows 11 main-window shell uses
+/// the native acrylic system backdrop (`DWMSBT_TRANSIENTWINDOW`), which DWM
+/// composes into peek/thumbnail/minimize surrogates just like any first-class
+/// window. When false, it uses the custom DComp/SWCA "Host Mica Alt" material
+/// (richer, self-tuned tint, but transparent during peek). Flip this one const —
+/// nothing is deleted — to compare the two live.
+#[cfg(target_os = "windows")]
+const USE_NATIVE_BACKDROP: bool = true;
+
 pub fn build_window_effects(
     effect: &str,
     color: Option<Color>,
@@ -87,6 +96,22 @@ pub fn apply_system_shell_fallback(window: &WebviewWindow, dark: bool) -> Result
 pub fn apply_system_shell_effect(window: &WebviewWindow, dark: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     if OsVersion::current().build >= WINDOWS_11_MIN_BUILD {
+        // Option 1 prototype: prefer the native acrylic system backdrop. DWM owns
+        // it, so — unlike the custom DComp/SWCA material — it renders in the
+        // taskbar thumbnail and Aero Peek preview instead of going transparent.
+        if USE_NATIVE_BACKDROP {
+            // The native backdrop handles minimize/restore itself; drop the guard.
+            super::minimize_guard::uninstall(window);
+            match apply_windows_native_backdrop(window, dark) {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    log::warn!(
+                        "Native acrylic backdrop unavailable, falling back to Mica Alt: {error}"
+                    );
+                    return apply_system_shell_fallback(window, dark);
+                }
+            }
+        }
         match apply_windows_host_mica_alt(window, dark) {
             Ok(()) => return Ok(()),
             Err(error) => {
@@ -99,6 +124,51 @@ pub fn apply_system_shell_effect(window: &WebviewWindow, dark: bool) -> Result<(
     }
 
     apply_system_shell_fallback(window, dark)
+}
+
+/// Apply the native acrylic system backdrop (`DWMSBT_TRANSIENTWINDOW`).
+///
+/// DWM composes this material as first-class window content, so it appears in the
+/// taskbar thumbnail and the Aero Peek live preview the same as any window — the
+/// custom DComp underlay / SWCA accent do not, which is why those surrogates show
+/// the bare transparent webview. Native acrylic is a live under-window blur (it
+/// samples what is behind the window), matching the previous look's behaviour; the
+/// heavier app tint is layered back in from the frontend. The trade-off is that
+/// the blur/tint are the system's, without the per-pixel radius/saturation control
+/// of the DComp path.
+#[cfg(target_os = "windows")]
+fn apply_windows_native_backdrop(window: &WebviewWindow, dark: bool) -> Result<(), String> {
+    const DWMWA_SYSTEMBACKDROP_TYPE: u32 = 38;
+    const DWMSBT_TRANSIENTWINDOW: u32 = 3;
+
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?.0 as HWND;
+
+    // Repaint the non-client frame for the theme before the backdrop swaps in.
+    let dark_mode: BOOL = dark as BOOL;
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
+            &dark_mode as *const _ as _,
+            std::mem::size_of_val(&dark_mode) as u32,
+        );
+    }
+
+    let backdrop: u32 = DWMSBT_TRANSIENTWINDOW;
+    let hr = unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_SYSTEMBACKDROP_TYPE,
+            &backdrop as *const _ as _,
+            std::mem::size_of_val(&backdrop) as u32,
+        )
+    };
+    if hr < 0 {
+        return Err(format!(
+            "DWMWA_SYSTEMBACKDROP_TYPE (acrylic) failed: {hr:#010x}"
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -129,8 +199,9 @@ type SetWindowCompositionAttribute =
 /// from the minimize cover) bypass this by calling the `_hwnd` function
 /// directly, which refreshes the cache.
 #[cfg(target_os = "windows")]
-static LAST_SWCA_THEME: std::sync::LazyLock<parking_lot::Mutex<std::collections::HashMap<isize, bool>>> =
-    std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashMap::new()));
+static LAST_SWCA_THEME: std::sync::LazyLock<
+    parking_lot::Mutex<std::collections::HashMap<isize, bool>>,
+> = std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashMap::new()));
 
 #[cfg(target_os = "windows")]
 fn apply_windows_host_mica_alt(window: &WebviewWindow, dark: bool) -> Result<(), String> {
@@ -285,6 +356,7 @@ fn resolve_set_window_composition_attribute() -> Option<SetWindowCompositionAttr
     }
 }
 
+//TODO: this should be remove.
 #[cfg(target_os = "windows")]
 fn disable_windows_live_backdrop(hwnd: HWND) {
     let mut policy = AccentPolicy {
@@ -358,20 +430,30 @@ pub fn force_first_present(window: &WebviewWindow, dark: bool) {
     // Re-registering against the now-visible window matches how DWM-owned
     // backdrops behave. On the SWCA fallback re-apply the accent policy, which
     // DWM can drop for windows that were hidden when it was applied.
-    let rebuilt = if super::host_backdrop::remove(hwnd as isize) {
-        match super::host_backdrop::apply(window, dark) {
-            Ok(()) => true,
-            Err(error) => {
-                log::warn!("Failed to rebuild the DComp host material after reveal: {error}");
-                false
+    if USE_NATIVE_BACKDROP {
+        // The native backdrop is a DWM attribute; DWM can drop attributes set
+        // while the window was hidden, so re-assert it once visible.
+        if OsVersion::current().build >= WINDOWS_11_MIN_BUILD {
+            if let Err(error) = apply_windows_native_backdrop(window, dark) {
+                log::warn!("Failed to re-assert the native backdrop after reveal: {error}");
             }
         }
     } else {
-        false
-    };
-    if !rebuilt && OsVersion::current().build >= WINDOWS_11_MIN_BUILD {
-        if let Err(error) = apply_windows_host_mica_alt_hwnd(hwnd, dark) {
-            log::warn!("Failed to re-assert the SWCA material after reveal: {error}");
+        let rebuilt = if super::host_backdrop::remove(hwnd as isize) {
+            match super::host_backdrop::apply(window, dark) {
+                Ok(()) => true,
+                Err(error) => {
+                    log::warn!("Failed to rebuild the DComp host material after reveal: {error}");
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        if !rebuilt && OsVersion::current().build >= WINDOWS_11_MIN_BUILD {
+            if let Err(error) = apply_windows_host_mica_alt_hwnd(hwnd, dark) {
+                log::warn!("Failed to re-assert the SWCA material after reveal: {error}");
+            }
         }
     }
 

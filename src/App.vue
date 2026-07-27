@@ -119,6 +119,9 @@ const isDesktopTauriRuntime = isTauri() && !isMobileDevice();
 const isNativeEffectPlatform = /Win|Mac/i.test(
   window.navigator.platform || window.navigator.userAgent,
 );
+// Windows-only marker for the native acrylic backdrop tint (option 1). macOS
+// vibrancy and non-native platforms must keep the bare transparent shell.
+const isWindowsNativeEffect = /Win/i.test(window.navigator.platform || window.navigator.userAgent);
 const desktopEnvironment = ref<DesktopEnvironment | null>(null);
 const usesDesktopTauriChrome = ref(isDesktopTauriRuntime);
 let inlineQueueMediaQuery: MediaQueryList | null = null;
@@ -159,6 +162,11 @@ watch(
   usesNativeWindowEffect,
   (enabled) => {
     document.documentElement.classList.toggle("native-window-effect-root", enabled);
+    // Gate the native acrylic tint to Windows so macOS vibrancy is untouched.
+    document.documentElement.classList.toggle(
+      "windows-native-effect-root",
+      enabled && isWindowsNativeEffect,
+    );
   },
   { immediate: true },
 );
@@ -433,6 +441,7 @@ onBeforeUnmount(() => {
   unlistenMainVisibility?.();
   unlistenMainVisibility = null;
   document.documentElement.classList.remove("native-window-effect-root");
+  document.documentElement.classList.remove("windows-native-effect-root");
 });
 </script>
 
@@ -441,6 +450,22 @@ onBeforeUnmount(() => {
 :global(html.native-window-effect-root body),
 :global(html.native-window-effect-root #app) {
   background: transparent !important;
+}
+
+// Option 1 (Windows only): native acrylic backdrop tint. DWM composes the acrylic
+// behind the transparent window, and *it* provides the natural, smooth color
+// transition — its luminosity blend of the blurred desktop. This layer only adds a
+// light app tint on top; keep it translucent so the acrylic's transition still
+// reads through, rather than a heavy flat wash (which flattens it and reads as
+// cheap). No grain — real acrylic is smooth, not textured. It is window content, so
+// it also renders in the taskbar thumbnail / Aero Peek preview. Tune the alphas:
+// lighter = more natural, closer to the taskbar, but more see-through. macOS
+// vibrancy is untouched.
+:global(html.windows-native-effect-root[data-theme="dark"]) {
+  background: rgba(18, 18, 22, 0.7) !important;
+}
+:global(html.windows-native-effect-root[data-theme="light"]) {
+  background: rgba(249, 250, 252, 0.62) !important;
 }
 
 .main-content {
