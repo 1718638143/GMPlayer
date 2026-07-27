@@ -465,7 +465,7 @@ onBeforeUnmount(() => {
   background: rgba(18, 18, 22, 0.7) !important;
 }
 :global(html.windows-native-effect-root[data-theme="light"]) {
-  background: rgba(249, 250, 252, 0.62) !important;
+  background: rgba(251, 252, 254, 0.68) !important;
 }
 
 .main-content {
