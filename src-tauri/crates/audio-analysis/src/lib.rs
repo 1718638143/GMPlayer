@@ -204,8 +204,27 @@ impl FftProcessor {
     /// `delta_ms` is wall-clock time since last call (from performance.now()).
     /// Returns reference to the normalized spectrum (0-255).
     pub fn read_spectrum(&mut self, _delta_ms: f32) -> &[f32] {
+        if self.run_fft_frame() {
+            self._normalize_and_smooth();
+        }
+        &self.spectrum
+    }
+
+    /// Raw-only variant of `read_spectrum` for the native IPC path: refreshes
+    /// `frame_buf`/`result_buf` (and thus `raw_spectrum()` / `get_raw_bins`)
+    /// without computing the WASM-only normalized `spectrum()` output.
+    /// Returns `true` when a new FFT frame was produced.
+    pub fn read_spectrum_raw(&mut self) -> bool {
+        self.run_fft_frame()
+    }
+
+    /// Shared per-frame FFT pipeline: Hamming window → FFT → magnitudes →
+    /// frequency sampling into `frame_buf` → raw-frame smoothing into
+    /// `result_buf`. Returns `false` (computing nothing) when fewer than
+    /// `FFT_SIZE` samples are buffered.
+    fn run_fft_frame(&mut self) -> bool {
         if self.available_samples < FFT_SIZE {
-            return &self.spectrum;
+            return false;
         }
 
         self.refresh_sample_map();
@@ -225,11 +244,8 @@ impl FftProcessor {
 
         self.sample_magnitudes_into_frame();
         self.smooth_raw_frame();
-
-        self._normalize_and_smooth();
         self.raw_bins_dirty = true;
-
-        &self.spectrum
+        true
     }
 
     /// Uniformly resample `spec` into a 2048-element freq buffer.
@@ -647,6 +663,20 @@ impl AudioProcessor {
             output_spectrum[..len].copy_from_slice(&spec[..len]);
         }
 
+        self.analyze_low_freq(delta_ms)
+    }
+
+    /// Raw pipeline for the native IPC path: FFT → raw bins → lowFreq analysis.
+    ///
+    /// Skips the WASM-only 0-255 normalization/EMA pass and the spectrum copy —
+    /// native consumers read `fft.raw_spectrum()` and the returned lowFreq value,
+    /// both of which are bit-identical to what `process_frame` produces.
+    pub fn process_frame_raw(&mut self, delta_ms: f32) -> f32 {
+        self.fft.read_spectrum_raw();
+        self.analyze_low_freq(delta_ms)
+    }
+
+    fn analyze_low_freq(&mut self, delta_ms: f32) -> f32 {
         let fft = &mut self.fft;
         let analyzer = &mut self.analyzer;
         let bin_count = analyzer.config().bin_count;
@@ -902,6 +932,60 @@ mod tests {
             "lowFreq {} out of [0, 1]",
             low_freq
         );
+    }
+
+    #[test]
+    fn test_process_frame_raw_matches_full_pipeline_native_outputs() {
+        // The native IPC path consumes only raw_spectrum(), get_raw_bins() and
+        // the returned lowFreq value. process_frame_raw must keep those
+        // bit-identical to process_frame while skipping the WASM-only
+        // normalization work.
+        let mut full = AudioProcessor::new(2048, 80.0, 2000.0, 2, 10, 0.35, 0.003);
+        let mut raw = AudioProcessor::new(2048, 80.0, 2000.0, 2, 10, 0.35, 0.003);
+        full.clear();
+        raw.clear();
+
+        let rate = 44100.0;
+        let mut scratch = vec![0.0f32; 2048];
+        for step in 0..12 {
+            let freq = 110.0 * (1 + step % 5) as f32;
+            let amp = 0.2 + 0.6 * ((step % 3) as f32 / 2.0);
+            let tone: Vec<f32> = (0..FFT_SIZE)
+                .map(|i| amp * (TAU * freq * i as f32 / rate).sin())
+                .collect();
+            full.push_pcm(&tone, 44100);
+            raw.push_pcm(&tone, 44100);
+
+            let low_full = full.process_frame(16.0, &mut scratch);
+            let low_raw = raw.process_frame_raw(16.0);
+
+            assert_eq!(low_full, low_raw, "lowFreq diverged at step {step}");
+            assert_eq!(
+                full.fft.raw_spectrum(),
+                raw.fft.raw_spectrum(),
+                "raw_spectrum diverged at step {step}"
+            );
+        }
+
+        assert_eq!(full.fft.get_raw_bins(2), raw.fft.get_raw_bins(2));
+        assert_eq!(full.fft.get_raw_bins(4), raw.fft.get_raw_bins(4));
+    }
+
+    #[test]
+    fn test_read_spectrum_raw_reports_frame_availability() {
+        let mut proc = FftProcessor::new(FftConfig::default());
+        assert!(!proc.read_spectrum_raw(), "no PCM buffered yet");
+
+        let rate = 44100.0;
+        let samples: Vec<f32> = (0..FFT_SIZE)
+            .map(|i| (TAU * 440.0 * i as f32 / rate).sin())
+            .collect();
+        proc.push_pcm(&samples, 44100);
+        assert!(proc.read_spectrum_raw());
+        assert!(proc.raw_spectrum().iter().any(|&v| v > 0.0));
+        // The WASM-only normalized spectrum must stay untouched on the raw path.
+        assert!(proc.spectrum().iter().all(|&v| v == 0.0));
+        assert!((proc.peak_value - 0.0001).abs() < 1e-8);
     }
 
     #[test]

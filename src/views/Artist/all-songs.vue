@@ -14,7 +14,13 @@
         </div>
       </div>
       <div class="song-panel">
-        <DataLists :listData="artistData" />
+        <DataLists
+          :listData="artistData"
+          virtual
+          virtual-height="min(68vh, 760px)"
+          :virtual-item-size="54"
+          :virtual-threshold="40"
+        />
       </div>
       <Pagination
         v-if="artistData[0]"

@@ -94,6 +94,9 @@ const toSongDownload = (id, br, name) => {
             document.body.appendChild(a);
             a.click();
             a.remove();
+            // Release after the click has been handed to the browser — the
+            // multi-MB blob stays pinned for the page lifetime otherwise.
+            setTimeout(() => window.URL.revokeObjectURL(url), 10_000);
             closeDownloadModal();
             downloadStatus.value = false;
             $message.success(t("general.message.downloadSuccess", { name }));
@@ -234,7 +237,7 @@ defineExpose({
 .downloadModal {
   .v-enter-active,
   .v-leave-active {
-    transition: opacity 0.3s ease;
+    transition: opacity var(--duration-300) var(--ease-out);
   }
 
   .v-enter-from,

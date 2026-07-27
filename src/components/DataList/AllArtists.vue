@@ -56,7 +56,7 @@ const jumpArtist = (id) => {
   flex-wrap: wrap;
   .name {
     cursor: pointer;
-    transition: all 0.3s;
+    transition: all var(--duration-300) var(--ease-out);
     &:hover {
       color: var(--main-color);
     }

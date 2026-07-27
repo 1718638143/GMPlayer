@@ -25,7 +25,12 @@ export type {
 } from "./types";
 
 // Time utilities
-export { parseLrcTime, formatLrcTime, detectYrcType } from "./timeUtils";
+export {
+  parseLrcTime,
+  formatLrcTime,
+  detectYrcType,
+  detectWordTimedLyricFormat,
+} from "./timeUtils";
 
 // Entry parsing
 export {

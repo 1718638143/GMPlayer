@@ -1086,7 +1086,7 @@ watch(
 .show-enter-active,
 .show-leave-active {
   transform: translateY(0);
-  transition: all 0.3s cubic-bezier(0.65, 0.05, 0.36, 1);
+  transition: all var(--duration-300) cubic-bezier(0.65, 0.05, 0.36, 1);
 }
 
 .show-enter-from,
@@ -1096,7 +1096,7 @@ watch(
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity var(--duration-150) var(--ease-in-out);
 }
 
 .mini-lyric-enter-active,
@@ -1332,7 +1332,7 @@ watch(
           font-size: 16px;
           font-weight: bold;
           cursor: pointer;
-          transition: all 0.3s;
+          transition: all var(--duration-300) var(--ease-out);
 
           &:hover {
             color: var(--player-accent-color);
@@ -1419,7 +1419,7 @@ watch(
         padding: 4px;
         border-radius: var(--radius-pill);
         transform: scale(1);
-        transition: all 0.3s;
+        transition: all var(--duration-300) var(--ease-out);
 
         &:hover {
           color: var(--n-color-embedded);
@@ -1442,7 +1442,7 @@ watch(
         margin: 0 12px;
         cursor: pointer;
         transform: scale(1);
-        transition: all 0.3s;
+        transition: all var(--duration-300) var(--ease-out);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1500,7 +1500,7 @@ watch(
         padding: 4px;
         border-radius: var(--radius-md);
         cursor: pointer;
-        transition: all 0.3s;
+        transition: all var(--duration-300) var(--ease-out);
 
         @media (min-width: 640px) {
           &:hover {

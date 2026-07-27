@@ -13,6 +13,17 @@ use tauri_plugin_decorum::WebviewWindowExt;
 static MAIN_SHELL_EFFECT_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static MAIN_SHELL_DARK: AtomicBool = AtomicBool::new(false);
 
+/// Broadcast a managed window's visibility change. The master window uses this
+/// to gate its slave broadcasts (time anchors / lyric payloads / reconcile
+/// polling) on windows that are actually visible — a hidden-but-alive window
+/// otherwise keeps that machinery running for the rest of the session.
+fn emit_window_visibility(app: &AppHandle, label: &str, visible: bool) {
+    let _ = app.emit(
+        "managed-window-visibility",
+        serde_json::json!({ "label": label, "visible": visible }),
+    );
+}
+
 /// Create or focus a window from a `WindowConfig`.
 ///
 /// If `config.single_instance` is true and a window with the same label already
@@ -30,6 +41,9 @@ pub fn create_window(app: &AppHandle, config: &WindowConfig) -> Result<(), Strin
                 existing.unminimize().map_err(|e| e.to_string())?;
             }
             existing.set_focus().map_err(|e| e.to_string())?;
+            // Re-shown without a page load — no slaveReady handshake fires, so
+            // announce visibility for the master's broadcast gating.
+            emit_window_visibility(app, label, true);
             return Ok(());
         }
     }
@@ -259,6 +273,31 @@ pub fn set_main_window_effect_theme(app: &AppHandle, dark: bool) -> Result<(), S
     Ok(())
 }
 
+/// Safety net for the hidden main window. The window is created invisible and
+/// only revealed when the frontend calls `set_main_window_effect_theme`; if the
+/// frontend fails before that call (script error, rejected invoke), the app
+/// would keep running with no window at all — on macOS this looks like the app
+/// "cannot be opened". Apply the default material for the current system theme
+/// and reveal instead of staying invisible.
+pub fn reveal_main_window_if_stuck(app: &AppHandle) {
+    if MAIN_SHELL_EFFECT_INITIALIZED.load(Ordering::Acquire) {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if window.is_visible().unwrap_or(false) {
+        return;
+    }
+    let dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
+    log::warn!("Main window was never revealed by the frontend; forcing fallback reveal");
+    if let Err(e) = set_main_window_effect_theme(app, dark) {
+        log::warn!("Fallback reveal failed to apply the shell material: {e}");
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 fn apply_runtime_size_constraints(
     window: &WebviewWindow,
     config: &WindowConfig,
@@ -294,6 +333,7 @@ pub fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
     if label == "main" {
         let _ = app.emit("main-window-visibility", true);
     }
+    emit_window_visibility(app, label, true);
     Ok(())
 }
 
@@ -306,6 +346,7 @@ pub fn hide_window(app: &AppHandle, label: &str) -> Result<(), String> {
     if label == "main" {
         let _ = app.emit("main-window-visibility", false);
     }
+    emit_window_visibility(app, label, false);
     Ok(())
 }
 
@@ -338,6 +379,7 @@ pub fn toggle_window(app: &AppHandle, label: &str) -> Result<(), String> {
         if label == "main" {
             let _ = app.emit("main-window-visibility", false);
         }
+        emit_window_visibility(app, label, false);
         Ok(())
     } else {
         window.show().map_err(|e| e.to_string())?;
@@ -350,6 +392,7 @@ pub fn toggle_window(app: &AppHandle, label: &str) -> Result<(), String> {
         if label == "main" {
             let _ = app.emit("main-window-visibility", true);
         }
+        emit_window_visibility(app, label, true);
         Ok(())
     }
 }
@@ -367,6 +410,7 @@ pub fn focus_window(app: &AppHandle, label: &str) -> Result<(), String> {
     if label == "main" {
         let _ = app.emit("main-window-visibility", true);
     }
+    emit_window_visibility(app, label, true);
     Ok(())
 }
 
@@ -416,7 +460,9 @@ pub fn show_window_at_position(app: &AppHandle, label: &str, x: f64, y: f64) -> 
         .set_position(PhysicalPosition::new(x as i32, y as i32))
         .map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
-    window.set_focus().map_err(|e| e.to_string())
+    window.set_focus().map_err(|e| e.to_string())?;
+    emit_window_visibility(app, label, true);
+    Ok(())
 }
 
 /// Set whether a window ignores cursor events (click-through).

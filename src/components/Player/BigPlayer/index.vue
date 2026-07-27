@@ -1348,8 +1348,8 @@ defineExpose({
   transform: translateY(100%);
   border-radius: 1em 1em 0 0;
   transition:
-    border-radius 0.25s ease,
-    transform 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+    border-radius var(--duration-200) var(--ease-out),
+    transform var(--duration-500) cubic-bezier(0.25, 1, 0.5, 1);
 
   // Opened state
   &.opened {
@@ -1357,8 +1357,8 @@ defineExpose({
     transform: translateY(0%);
     border-radius: 0;
     transition:
-      border-radius 0.25s 0.25s ease,
-      transform 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+      border-radius var(--duration-200) var(--ease-out) 0.25s,
+      transform var(--duration-500) cubic-bezier(0.25, 1, 0.5, 1);
   }
 
   /* ═══════════════════════════════════════════════════════
@@ -1455,7 +1455,7 @@ defineExpose({
     // 默认: Layer 1 可见 (= AMLL hideLyric)
     :deep(.mobile-small-controls) {
       opacity: 0;
-      transition: opacity 0.5s;
+      transition: opacity var(--duration-500) var(--ease-out);
       pointer-events: none;
     }
 
@@ -1466,7 +1466,7 @@ defineExpose({
     :deep(.mobile-lyric),
     :deep(.no-lyrics) {
       opacity: 0;
-      transition: opacity 0.5s;
+      transition: opacity var(--duration-500) var(--ease-out);
       pointer-events: none;
     }
 
@@ -1486,7 +1486,7 @@ defineExpose({
     &.layer2-active {
       :deep(.mobile-small-controls) {
         opacity: 1;
-        transition: opacity 0.25s 0.25s;
+        transition: opacity var(--duration-200) var(--ease-out) 0.25s;
       }
 
       :deep(.mobile-cover-layout) {
@@ -1496,7 +1496,7 @@ defineExpose({
       :deep(.mobile-lyric),
       :deep(.no-lyrics) {
         opacity: 1;
-        transition: opacity 0.5s 0.5s;
+        transition: opacity var(--duration-500) var(--ease-out) 0.5s;
       }
 
       :deep(.mobile-big-controls) {
@@ -1550,7 +1550,7 @@ defineExpose({
 /* CSS过渡效果 */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity var(--duration-300) cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .fade-enter-from,

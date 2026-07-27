@@ -294,16 +294,31 @@ const closeBigPlayer = () => {
 
 <style lang="scss" scoped>
 .record {
-  --cover-size: min(50vh, 38vw);
+  /* 高度预算：控件区约 15rem + 纵向 gap 2rem + 上下对称 padding 各 2.5rem；
+     stage 高为封面的 1.25 倍，故预算需除以 1.25 */
+  --cover-controls-budget: 19.5rem;
+  --cover-size: max(
+    10rem,
+    min(50vh, 38vw, calc((100vh - var(--cover-controls-budget) - 5rem) / 1.18))
+  );
   position: relative;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2rem;
+  /* 顶部为绝对定位的关闭手柄保留出画余量（矮窗口不被居中布局顶出视口）；
+     底部 padding 额外偏置 0.06×封面：唱臂预留区视觉上偏空，
+     纯几何居中会显得整体偏下，此处做光学居中（预算中 1.18 = 1.12 + 0.06） */
+  padding: 2.5rem 0 calc(2.5rem + var(--cover-size) * 0.06);
 
   @media screen and (max-height: 768px) {
-    --cover-size: min(45vh, 38vw);
+    --cover-size: max(
+      9rem,
+      min(45vh, 38vw, calc((100vh - var(--cover-controls-budget) - 4.5rem) / 1.18))
+    );
     gap: 1.5rem;
+    padding: 2.25rem 0 calc(2.25rem + var(--cover-size) * 0.06);
   }
   &:hover {
     .control {
@@ -312,10 +327,35 @@ const closeBigPlayer = () => {
   }
   .record-stage {
     position: relative;
-    width: var(--cover-size);
-    height: calc(var(--cover-size) * 1.25);
+    width: min(var(--cover-size), 100%);
+    /* 1.12 倍高：压缩唱臂预留区，唱臂与盘面重叠更贴近真实唱机，
+       同时减少顶部视觉空腔 */
+    aspect-ratio: 1 / 1.12;
     display: grid;
     place-items: end center;
+
+    /* 盘面高光：固定光源，不随唱片旋转（旋转动画在 .pic 上） */
+    &::after {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(var(--cover-size), 100%);
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      background: conic-gradient(
+        from 210deg,
+        transparent 0deg,
+        rgb(255 255 255 / 0.07) 42deg,
+        transparent 95deg,
+        transparent 185deg,
+        rgb(255 255 255 / 0.04) 235deg,
+        transparent 285deg
+      );
+      pointer-events: none;
+      z-index: 1;
+    }
 
     .amll-close-action {
       position: absolute;
@@ -334,84 +374,63 @@ const closeBigPlayer = () => {
       top: calc(var(--cover-size) * 0.02);
       transform: rotate(-20deg);
       transform-origin: calc(var(--cover-size) * 0.045) calc(var(--cover-size) * 0.045);
-      z-index: 1;
-      transition: all 0.3s;
+      z-index: 2;
+      filter: drop-shadow(0 6px 10px rgb(0 0 0 / 0.3));
+      transition: transform var(--duration-400) var(--ease-out);
       &.play {
         transform: rotate(0);
       }
     }
     .pic {
+      position: relative;
       animation: rotate 18s linear infinite;
       border-radius: 50%;
-      border: calc(var(--cover-size) * 0.025) solid #ffffff30;
-      background:
-        linear-gradient(black 0%, transparent, black 98%),
-        radial-gradient(
-          #000 52%,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555,
-          #000,
-          #555
-        );
-      background-clip: content-box;
-      width: var(--cover-size);
-      height: var(--cover-size);
+      width: min(var(--cover-size), 100%);
+      height: auto;
+      aspect-ratio: 1 / 1;
       display: flex;
       justify-content: center;
       align-items: center;
-      .album {
-        border: calc(var(--cover-size) * 0.025) solid #ffffff40;
+      /* 黑胶盘面：细密沟槽 + 低对比中心过渡，替代原先的粗黑灰环 */
+      background:
+        radial-gradient(circle at center, rgb(255 255 255 / 0.05) 0%, transparent 60%),
+        repeating-radial-gradient(
+          circle at center,
+          #0b0b0d 0,
+          #0b0b0d 2.5px,
+          #191a1d 3px,
+          #0b0b0d 3.5px
+        ),
+        #0b0b0d;
+      box-shadow:
+        0 20px 46px rgb(0 0 0 / 0.38),
+        inset 0 0 0 1px rgb(255 255 255 / 0.12),
+        inset 0 0 calc(var(--cover-size) * 0.12) rgb(0 0 0 / 0.55);
+
+      /* 中心轴点 */
+      &::after {
+        content: "";
+        position: absolute;
+        width: calc(var(--cover-size) * 0.02);
+        height: calc(var(--cover-size) * 0.02);
         border-radius: 50%;
-        width: 64%;
-        height: 64%;
+        background: #e6e6e6;
+        box-shadow:
+          0 0 0 2px rgb(0 0 0 / 0.65),
+          0 1px 3px rgb(0 0 0 / 0.5);
+        z-index: 2;
+      }
+
+      .album {
+        border-radius: 50%;
+        width: 62%;
+        height: 62%;
         object-fit: cover;
+        border: 1px solid rgb(255 255 255 / 0.16);
+        /* 标签与盘面间的过渡圈 */
+        box-shadow:
+          0 0 0 calc(var(--cover-size) * 0.012) rgb(0 0 0 / 0.42),
+          0 0 calc(var(--cover-size) * 0.05) rgb(0 0 0 / 0.3);
       }
     }
   }
@@ -466,13 +485,13 @@ const closeBigPlayer = () => {
           font-size: 1.75rem;
           cursor: pointer;
           opacity: 1;
-          transition: opacity 0.2s ease;
+          transition: opacity var(--duration-200) var(--ease-out);
         }
         .more-button {
           font-size: 1.75rem;
           cursor: pointer;
           opacity: 1;
-          transition: opacity 0.2s ease;
+          transition: opacity var(--duration-200) var(--ease-out);
           &:hover {
             opacity: 1;
           }
@@ -527,8 +546,8 @@ const closeBigPlayer = () => {
         opacity: 1;
         cursor: pointer;
         transition:
-          opacity 0.2s ease,
-          transform 0.1s ease-out;
+          opacity var(--duration-200) var(--ease-out),
+          transform var(--duration-150) var(--ease-out);
         &:hover {
           opacity: 1;
         }

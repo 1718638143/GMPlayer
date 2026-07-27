@@ -70,8 +70,8 @@ const resetOffset = () => {
   opacity: 0;
   pointer-events: none;
   transition:
-    opacity 0.25s ease,
-    visibility 0.25s ease;
+    opacity var(--duration-200) var(--ease-out),
+    visibility var(--duration-200) var(--ease-out);
 
   // When offset ≠ 0: show only the badge
   &.has-offset .offset-value {
@@ -115,10 +115,10 @@ const resetOffset = () => {
   visibility: hidden;
   opacity: 0;
   transition:
-    opacity 0.2s ease,
-    visibility 0.2s ease,
-    background-color 0.15s ease,
-    transform 0.1s ease;
+    opacity var(--duration-200) var(--ease-out),
+    visibility var(--duration-200) var(--ease-out),
+    background-color var(--duration-150) var(--ease-out),
+    transform var(--duration-150) var(--ease-out);
 
   &:hover {
     opacity: 1 !important;
@@ -136,7 +136,7 @@ const resetOffset = () => {
   color: var(--main-cover-color);
   cursor: pointer;
   padding: 3px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   white-space: nowrap;
   text-align: center;
   line-height: 1.2;
@@ -145,9 +145,9 @@ const resetOffset = () => {
   visibility: hidden;
   opacity: 0;
   transition:
-    opacity 0.2s ease,
-    visibility 0.2s ease,
-    background-color 0.15s ease;
+    opacity var(--duration-200) var(--ease-out),
+    visibility var(--duration-200) var(--ease-out),
+    background-color var(--duration-150) var(--ease-out);
 
   &:hover {
     opacity: 1 !important;

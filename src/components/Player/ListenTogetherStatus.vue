@@ -54,9 +54,9 @@ defineEmits(["click"]);
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--duration-200) var(--ease-out);
   color: var(--main-color);
   background-color: var(--main-color-hover);
 
@@ -107,7 +107,7 @@ defineEmits(["click"]);
       color: var(--main-color);
       background-color: var(--n-action-color);
       padding: 2px 6px;
-      border-radius: 4px;
+      border-radius: var(--radius-xs);
     }
   }
 

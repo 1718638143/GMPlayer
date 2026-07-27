@@ -345,7 +345,7 @@ watch(
       width: 100%;
       aspect-ratio: 1 / 1;
       border-radius: var(--radius-md);
-      transition: transform 0.3s;
+      transition: transform var(--duration-300) var(--ease-out);
       filter: drop-shadow(0 16px 28px rgba(var(--content-panel-accent-rgb, 0, 0, 0), 0.22));
 
       &:active {
@@ -421,7 +421,7 @@ watch(
           font-weight: 700;
           color: var(--n-text-color-2);
           cursor: pointer;
-          transition: color 0.2s;
+          transition: color var(--duration-200) var(--ease-out);
 
           &:hover {
             color: rgb(var(--content-panel-accent-rgb, 128, 128, 128));
@@ -481,7 +481,7 @@ watch(
           color: var(--n-text-color-2);
           background-color: color-mix(in srgb, var(--n-border-color) 62%, transparent);
           cursor: pointer;
-          transition: all 0.3s;
+          transition: all var(--duration-300) var(--ease-out);
 
           &:hover {
             background-color: color-mix(

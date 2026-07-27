@@ -1080,6 +1080,19 @@ fn read_input_frame(
     buf: &mut [f32],
 ) -> bool {
     debug_assert_eq!(buf.len(), channels);
+
+    // Fast path: the whole frame sits inside the current decoded buffer, so
+    // copy it as one slice — the resample/mix hot loop calls this per output
+    // frame and the per-sample `next()` chain costs a branch per sample.
+    let samples = source.buffer.samples();
+    let offset = source.buffer_offset;
+    if offset + channels <= samples.len() {
+        buf[..channels].copy_from_slice(&samples[offset..offset + channels]);
+        source.buffer_offset = offset + channels;
+        return true;
+    }
+
+    // Slow path: the frame straddles a refill boundary (or the source ends).
     for slot in &mut buf[..channels] {
         match source.next() {
             Some(sample) => *slot = sample,

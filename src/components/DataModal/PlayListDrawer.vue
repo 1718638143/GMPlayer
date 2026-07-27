@@ -8,100 +8,37 @@
     :show-mask="false"
     :trap-focus="false"
     :block-scroll="false"
-    :style="{
-      '--cover-main-color': `rgb(${site.songPicColor})` || '#efefef',
-      '--cover-second-color': `rgba(${site.songPicColor}, 0.14)` || '#efefef14',
-    }"
     placement="right"
     to="body"
     @update:show="handleDrawerShowUpdate"
     @after-leave="handleDrawerAfterLeave"
   >
-    <n-drawer-content :native-scrollbar="false" closable>
+    <n-drawer-content
+      class="playlist-drawer-content"
+      :native-scrollbar="true"
+      :body-content-style="{ padding: 0, height: '100%' }"
+      closable
+    >
       <template #header>
-        <div class="playlist-header">
-          <div class="text">
-            <n-text class="name">{{ $t("general.name.playlists") }}</n-text>
-            <n-text class="num" :depth="3" v-if="music.getPlaylists.length > 0">
-              {{ $t("general.name.songSize", { size: music.getPlaylists.length }) }}
-            </n-text>
-          </div>
-          <button
-            v-if="music.getPlaylists.length"
-            class="playlist-clear"
-            type="button"
-            @click="music.clearPlaylists()"
-          >
-            {{ $t("player.queue.clear") }}
-          </button>
-        </div>
+        <n-text class="playlist-title">{{ $t("general.name.playlists") }}</n-text>
       </template>
-      <Transition mode="out-in">
-        <div v-if="music.getPlaylists[0]">
-          <n-card
-            hoverable
-            :class="index === music.persistData.playSongIndex ? 'songs play' : 'songs'"
-            :id="'playlist' + index"
-            :content-style="{
-              padding: '8px',
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }"
-            v-for="(item, index) in music.getPlaylists"
-            :key="item"
-            @click="changeIndex(index)"
-          >
-            <div class="left">
-              <n-text v-if="index !== music.persistData.playSongIndex" :depth="3" class="num">
-                {{ index + 1 }}
-              </n-text>
-              <div v-else class="bar">
-                <div
-                  v-for="item in 3"
-                  :key="item"
-                  class="line"
-                  :style="{
-                    animationDelay: `0.${item * item}s`,
-                    animationPlayState: music.getPlayState ? 'running' : 'paused',
-                    height: `${Math.floor(Math.random() * 7) + 10}px`,
-                  }"
-                />
-              </div>
-            </div>
-            <div class="right">
-              <div class="name text-hidden">{{ item.name }}</div>
-              <AllArtists class="text-hidden" :artistsData="item.artist" />
-              <n-icon
-                class="remove"
-                size="18"
-                :component="DeleteFour"
-                @click.stop="music.removeSong(index)"
-              />
-            </div>
-          </n-card>
-        </div>
-        <n-text v-else>{{ $t("other.playlistEmpty") }}</n-text>
-      </Transition>
+      <QueuePanel ref="queuePanelRef" />
     </n-drawer-content>
   </n-drawer>
 </template>
 
 <script setup>
-import { musicStore, siteStore } from "@/store";
-import { DeleteFour } from "@icon-park/vue-next";
+import { musicStore } from "@/store";
 import { PLAYLIST_DRAWER_MEDIA_QUERY } from "@/utils/playlistLayout";
-import { useI18n } from "vue-i18n";
-import AllArtists from "@/components/DataList/AllArtists.vue";
+import QueuePanel from "@/components/QueuePanel/index.vue";
 
-const { t } = useI18n();
 const music = musicStore();
-const site = siteStore();
 
 // 播放列表显隐
 const useDrawerLayout = ref(false);
 let drawerMediaQuery = null;
 const playListShow = ref(false);
+const queuePanelRef = ref(null);
 
 const handleDrawerAfterLeave = () => {
   if (useDrawerLayout.value && !playListShow.value && music.showPlayList) {
@@ -119,33 +56,10 @@ const handleDrawerShowUpdate = (show) => {
   }
 };
 
-// 改变播放索引
-const changeIndex = (index) => {
-  try {
-    music.selectPlaySongByIndex(index);
-  } catch (err) {
-    console.error(t("general.message.operationFailed"), err);
-    $message.error(t("general.message.operationFailed"));
-  }
-};
-
-// 监听播放列表显隐
-const timeOut = ref(null);
+// 打开时滚动到当前播放曲目
 const scrollToCurrentSong = () => {
   nextTick().then(() => {
-    if (playListShow.value && music.getPlaylists[0]) {
-      const el = document.getElementById(`playlist${music.persistData.playSongIndex}`);
-      if (el) {
-        timeOut.value = setTimeout(() => {
-          el.scrollIntoView({
-            behavior: "smooth",
-            block: "center",
-          });
-        }, 500);
-      }
-    } else {
-      clearTimeout(timeOut.value);
-    }
+    if (playListShow.value) queuePanelRef.value?.scrollToCurrent();
   });
 };
 
@@ -185,7 +99,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   drawerMediaQuery?.removeEventListener("change", syncDrawerLayout);
-  clearTimeout(timeOut.value);
 });
 </script>
 
@@ -193,40 +106,17 @@ onBeforeUnmount(() => {
 .playlist-drawer {
   width: 400px !important;
   border-radius: 0;
-  transition: width 0.3s;
+  transition: width var(--duration-300) var(--ease-out);
 
   .n-drawer-header {
-    height: 70px;
+    height: 60px;
     box-sizing: border-box;
   }
 
-  .n-scrollbar-content {
-    padding: 16px !important;
+  // QueuePanel 自管滚动与内边距，抽屉主体不再包滚动容器
+  .n-drawer-body-content-wrapper {
+    padding: 0 !important;
     height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-  }
-
-  &.full-player {
-    background-color: transparent;
-    box-shadow: none;
-
-    .n-drawer-header {
-      border-bottom: none;
-
-      .pl-name {
-        a,
-        span,
-        .n-icon {
-          color: var(--cover-main-color) !important;
-        }
-      }
-
-      .n-base-icon {
-        color: var(--cover-main-color);
-      }
-    }
   }
 
   @media (max-width: 700px) {
@@ -237,186 +127,8 @@ onBeforeUnmount(() => {
 </style>
 
 <style lang="scss" scoped>
-.playlist-drawer {
-  .v-enter-active,
-  .v-leave-active {
-    transition: opacity 0.3s ease;
-  }
-
-  .v-enter-from,
-  .v-leave-to {
-    opacity: 0;
-  }
-
-  .playlist-header {
-    width: 100%;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .text {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-
-    .num {
-      font-size: 14px;
-
-      &::before {
-        content: "-";
-        margin: 0 6px;
-      }
-    }
-  }
-
-  .songs {
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    margin-bottom: 12px;
-    transition: all 0.3s;
-
-    &:nth-last-of-type(1) {
-      margin-bottom: 0;
-    }
-
-    &:active {
-      transform: scale(0.98);
-    }
-
-    &:hover {
-      .n-card__content {
-        .right {
-          .remove {
-            opacity: 1;
-          }
-        }
-      }
-    }
-
-    &.play {
-      background-color: var(--cover-second-color);
-      border-color: var(--cover-main-color);
-
-      a,
-      span,
-      div,
-      .n-icon {
-        color: var(--cover-main-color);
-      }
-
-      :deep(span) {
-        color: var(--cover-main-color);
-      }
-
-      .right {
-        .remove {
-          color: var(--cover-main-color);
-
-          &:hover {
-            background-color: var(--n-action-color);
-          }
-        }
-      }
-    }
-
-    .left {
-      width: 30px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-right: 12px;
-
-      .bar {
-        display: flex;
-        justify-content: space-evenly;
-        align-items: flex-end;
-        width: 20px;
-        height: 20px;
-
-        .line {
-          width: 3px;
-          height: 16px;
-          background-color: var(--cover-main-color);
-          border-radius: var(--radius-xs);
-          transition: all 0.3s;
-          animation: lineMove 1s ease-in-out infinite;
-        }
-
-        @keyframes lineMove {
-          0% {
-            height: 16px;
-          }
-
-          50% {
-            height: 10px;
-          }
-
-          100% {
-            height: 16px;
-          }
-        }
-      }
-    }
-
-    .right {
-      flex: 1;
-      position: relative;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      justify-content: center;
-      padding-right: 42px;
-
-      .name {
-        pointer-events: none;
-      }
-
-      .artists {
-        opacity: 0.8;
-        font-size: 13px;
-        pointer-events: none;
-      }
-
-      .remove {
-        position: absolute;
-        border-radius: var(--radius-md);
-        right: 0;
-        opacity: 0;
-        transition: all 0.3s;
-        color: #999;
-        padding: 6px;
-
-        &:hover {
-          color: var(--cover-main-color);
-          background-color: var(--n-border-color);
-        }
-      }
-    }
-  }
-
-  .playlist-clear {
-    flex: 0 0 auto;
-    padding: 5px 9px;
-    border: 0;
-    border-radius: var(--radius-sm);
-    color: var(--n-text-color-3);
-    background: transparent;
-    font: inherit;
-    font-size: 12px;
-    cursor: pointer;
-    transition:
-      color 0.16s ease,
-      background-color 0.16s ease;
-
-    &:hover,
-    &:focus-visible {
-      color: var(--n-text-color);
-      background-color: color-mix(in srgb, var(--n-text-color) 9%, transparent);
-      outline: none;
-    }
-  }
+.playlist-title {
+  font-size: 15px;
+  font-weight: 700;
 }
 </style>

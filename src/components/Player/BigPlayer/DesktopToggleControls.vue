@@ -68,7 +68,7 @@ defineEmits<{
   width: 3rem;
   height: 3rem;
   padding: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition:
     opacity 0.24s ease,

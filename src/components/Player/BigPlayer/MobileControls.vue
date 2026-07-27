@@ -115,8 +115,8 @@ const { persistData } = storeToRefs(music);
     color: var(--main-cover-color);
     cursor: pointer;
     transition:
-      transform 0.15s ease,
-      opacity 0.15s ease;
+      transform var(--duration-150) var(--ease-out),
+      opacity var(--duration-150) var(--ease-out);
 
     &:active {
       transform: scale(0.85);
@@ -195,7 +195,7 @@ const { persistData } = storeToRefs(music);
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity var(--duration-300) cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .fade-enter-from,

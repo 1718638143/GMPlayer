@@ -124,6 +124,10 @@ export function useNativeMediaControls() {
   let unlistenAudioFocus: (() => void) | null = null;
   let lastPayloadHash = "";
   let lastProgressSyncAt = 0;
+  // Whether THIS instance holds the singleton slot. A non-claiming instance
+  // (mounted while another was active) must not decrement the shared counter
+  // on unmount, or the surviving instance is left permanently inert.
+  let claimedMediaControls = false;
 
   const PROGRESS_SYNC_INTERVAL = 5_000;
 
@@ -393,6 +397,7 @@ export function useNativeMediaControls() {
   onMounted(async () => {
     if (instanceCount > 0) return;
     instanceCount++;
+    claimedMediaControls = true;
 
     if (!isTauri()) return;
 
@@ -410,7 +415,10 @@ export function useNativeMediaControls() {
   });
 
   onUnmounted(() => {
-    instanceCount = Math.max(0, instanceCount - 1);
+    if (claimedMediaControls) {
+      claimedMediaControls = false;
+      instanceCount = Math.max(0, instanceCount - 1);
+    }
     unlistenMediaAction?.();
     unlistenMediaAction = null;
     unlistenAudioFocus?.();

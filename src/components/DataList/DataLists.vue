@@ -849,7 +849,7 @@ const jumpLink = (id, type) => {
   }
 
   .songs {
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     margin-bottom: 12px;
     overflow: hidden;
     transition:
@@ -902,7 +902,7 @@ const jumpLink = (id, type) => {
       width: 50px;
       height: 50px;
       min-width: 50px;
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       margin-right: 16px;
       display: flex;
       align-items: center;

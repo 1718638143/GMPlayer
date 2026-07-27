@@ -319,6 +319,11 @@ export class AudioEffectManager {
     if (this._workletNode) {
       try {
         this._workletNode.port.onmessage = null;
+        // Tell the processor to return false from process() so the engine can
+        // retire it. A processor that keeps returning true is kept alive (and
+        // called every render quantum) forever, accumulating one zombie
+        // processor on the audio thread per unloaded track.
+        this._workletNode.port.postMessage("stop");
         this._workletNode.disconnect();
       } catch {
         /* already disconnected */

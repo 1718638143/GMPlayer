@@ -568,7 +568,7 @@ const goToPlaylist = (id: number) => {
   display: flex;
   flex-direction: column;
   background-color: var(--app-shell-bg, var(--layout-bg, #fff));
-  transition: background-color 0.3s;
+  transition: background-color var(--duration-300) var(--ease-out);
   overflow: hidden;
   overscroll-behavior: contain;
   contain: layout paint;
@@ -627,7 +627,7 @@ const goToPlaylist = (id: number) => {
   padding: 8px 12px;
   min-height: 46px;
   background-color: var(--app-shell-bg, var(--layout-bg, #fff));
-  transition: padding 0.22s ease-in-out;
+  transition: padding var(--duration-200) var(--ease-in-out);
 
   &::after {
     content: "";
@@ -643,14 +643,14 @@ const goToPlaylist = (id: number) => {
       rgba(var(--app-shell-rgb, 242, 242, 244), 0.72),
       rgba(var(--app-shell-rgb, 242, 242, 244), 0)
     );
-    transition: opacity 0.18s ease;
+    transition: opacity var(--duration-200) var(--ease-out);
   }
 }
 
 .sidebar-search {
   min-width: 0;
   opacity: 1;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--duration-150) var(--ease-out);
 
   :deep(.list) {
     z-index: var(--z-search-overlay, 1900);
@@ -813,7 +813,7 @@ const goToPlaylist = (id: number) => {
   padding: 1px 8px;
   max-width: 100%;
   box-sizing: border-box;
-  transition: padding 0.3s ease;
+  transition: padding var(--duration-300) var(--ease-out);
 
   &.collapsed {
     padding: 1px 8px;
@@ -853,7 +853,7 @@ const goToPlaylist = (id: number) => {
 
   span {
     opacity: 1;
-    transition: opacity 0.18s ease;
+    transition: opacity var(--duration-200) var(--ease-out);
   }
 
   .section-chevron {
@@ -928,7 +928,7 @@ const goToPlaylist = (id: number) => {
   padding: 7px 8px;
   border-top: 1px solid var(--sidebar-divider);
   background-color: var(--app-shell-bg, var(--layout-bg, #fff));
-  transition: padding 0.22s ease-in-out;
+  transition: padding var(--duration-200) var(--ease-in-out);
 
   &::before {
     content: "";
@@ -944,7 +944,7 @@ const goToPlaylist = (id: number) => {
       rgba(var(--app-shell-rgb, 242, 242, 244), 0.78),
       rgba(var(--app-shell-rgb, 242, 242, 244), 0)
     );
-    transition: opacity 0.18s ease;
+    transition: opacity var(--duration-200) var(--ease-out);
   }
 }
 
@@ -959,7 +959,7 @@ const goToPlaylist = (id: number) => {
   border-radius: var(--radius-md);
   background-color: var(--sidebar-hover-bg);
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color var(--duration-200) var(--ease-out);
   overflow: hidden;
   white-space: nowrap;
 
@@ -1001,11 +1001,11 @@ const goToPlaylist = (id: number) => {
 
 // Text fade transition for section titles
 .sidebar-text-fade-enter-active {
-  transition: opacity 0.25s ease 0.15s;
+  transition: opacity var(--duration-200) var(--ease-out) 0.15s;
 }
 
 .sidebar-text-fade-leave-active {
-  transition: opacity 0.1s ease;
+  transition: opacity var(--duration-150) var(--ease-out);
 }
 
 .sidebar-text-fade-enter-from,

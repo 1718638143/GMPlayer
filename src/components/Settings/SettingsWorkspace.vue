@@ -445,7 +445,7 @@ const handleAction = (key: string) => {
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background-color: var(--color, var(--main-color));
     cursor: pointer;
     overflow: hidden;
@@ -458,7 +458,7 @@ const handleAction = (key: string) => {
       position: absolute;
       inset: 4px;
       border: 2px solid rgb(255 255 255 / 0.72);
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       opacity: 0;
       transition: opacity var(--duration-150) var(--ease-out);
     }

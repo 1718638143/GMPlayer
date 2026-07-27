@@ -473,7 +473,7 @@ async function copyShareLink() {
   padding-top: 18px;
 
   .auth-alert {
-    border-radius: 8px;
+    border-radius: var(--radius-md);
   }
 
   .empty-hint {
@@ -488,7 +488,7 @@ async function copyShareLink() {
   gap: 14px;
   padding: 12px 14px;
   background-color: var(--n-action-color);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--n-divider-color);
 
   .song-cover-wrap {
@@ -496,13 +496,13 @@ async function copyShareLink() {
     flex-shrink: 0;
     width: 56px;
     height: 56px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow: visible;
 
     .song-cover-img {
       width: 56px;
       height: 56px;
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       object-fit: cover;
       display: block;
     }
@@ -558,7 +558,7 @@ async function copyShareLink() {
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  border-radius: 12px;
+  border-radius: var(--radius-panel);
   background: linear-gradient(
     135deg,
     color-mix(in srgb, var(--main-color) 12%, transparent),
@@ -599,7 +599,7 @@ async function copyShareLink() {
 
     .icon-btn {
       color: var(--n-text-color-3);
-      transition: color 0.2s;
+      transition: color var(--duration-200) var(--ease-out);
 
       &:hover {
         color: var(--main-color);
@@ -619,10 +619,10 @@ async function copyShareLink() {
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 500;
-  transition: background-color 0.3s;
+  transition: background-color var(--duration-300) var(--ease-out);
 
   // idle / synced
   &.sync-bar--idle {
@@ -719,8 +719,8 @@ async function copyShareLink() {
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
-  border-radius: 8px;
-  transition: background-color 0.15s;
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-150) var(--ease-out);
 
   &:hover {
     background-color: var(--n-action-color);
@@ -790,7 +790,7 @@ async function copyShareLink() {
 .now-playing-section {
   padding: 12px 14px;
   background-color: var(--n-action-color);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--n-divider-color);
 }
 
@@ -822,10 +822,10 @@ async function copyShareLink() {
   flex-shrink: 0;
   width: 48px;
   height: 48px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
-  transition: border-radius 0.4s ease;
+  transition: border-radius var(--duration-400) var(--ease-out);
 
   &.np-cover--spinning {
     border-radius: 50%;
@@ -866,9 +866,9 @@ async function copyShareLink() {
 .lt-slide-enter-active,
 .lt-slide-leave-active {
   transition:
-    opacity 0.25s ease,
-    transform 0.25s ease,
-    max-height 0.3s ease;
+    opacity var(--duration-200) var(--ease-out),
+    transform var(--duration-200) var(--ease-out),
+    max-height var(--duration-300) var(--ease-out);
   overflow: hidden;
   max-height: 60px;
 }
@@ -882,7 +882,7 @@ async function copyShareLink() {
 
 .lt-fade-enter-active,
 .lt-fade-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity var(--duration-200) var(--ease-out);
 }
 
 .lt-fade-enter-from,

@@ -446,9 +446,9 @@ watch(
       0 8px 24px rgb(0 0 0 / 8%),
       inset 0 0 0 1px var(--acrylic-border, rgba(255, 255, 255, 0.16));
     transition:
-      width 0.3s,
-      background-color 0.2s,
-      box-shadow 0.2s;
+      width var(--duration-300) var(--ease-out),
+      background-color var(--duration-200) var(--ease-out),
+      box-shadow var(--duration-200) var(--ease-out);
 
     @media (max-width: 450px) {
       width: 36px;
@@ -515,7 +515,7 @@ watch(
 
     :deep(.n-input__prefix) {
       .n-icon {
-        transition: color 0.3s;
+        transition: color var(--duration-300) var(--ease-out);
         &.active {
           color: var(--main-color);
         }
@@ -620,7 +620,7 @@ watch(
                 color: var(--search-chip-text);
                 font-size: 12px;
                 cursor: pointer;
-                transition: all 0.3s;
+                transition: all var(--duration-300) var(--ease-out);
                 &:hover {
                   background-color: var(--search-chip-bg-hover);
                   box-shadow:
@@ -654,7 +654,7 @@ watch(
               cursor: pointer;
               border-radius: var(--radius-md);
               padding: 5px;
-              transition: all 0.3s;
+              transition: all var(--duration-300) var(--ease-out);
 
               &:nth-last-of-type(1) {
                 margin-bottom: 0;
@@ -748,7 +748,7 @@ watch(
                 padding: 10px 12px 10px 16px;
                 font-size: 13px;
                 cursor: pointer;
-                transition: all 0.3s;
+                transition: all var(--duration-300) var(--ease-out);
                 border-radius: var(--radius-md);
                 &:hover {
                   background-color: var(--n-border-color);

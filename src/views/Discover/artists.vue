@@ -236,7 +236,7 @@ onMounted(() => {
       padding: 0 16px;
       line-height: 0;
       cursor: pointer;
-      transition: all 0.3s;
+      transition: all var(--duration-300) var(--ease-out);
 
       &:hover {
         background-color: var(--main-second-color);
@@ -263,7 +263,7 @@ onMounted(() => {
     margin-top: 40px;
     width: 140px;
     font-size: 16px;
-    transition: all 0.3s;
+    transition: all var(--duration-300) var(--ease-out);
 
     &:hover {
       background-color: var(--main-second-color);

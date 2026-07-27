@@ -1,5 +1,5 @@
 <template>
-  <div class="player-cover-container">
+  <div ref="coverContainerRef" class="player-cover-container">
     <div class="cover-stage">
       <div class="amll-close-action">
         <ControlThumb aria-label="Close player" @click="closeBigPlayer" />
@@ -346,60 +346,89 @@ const closeBigPlayer = () => {
 };
 
 // GSAP 动画
+// Scoped to this component's own buttons (a document-wide query would attach
+// to other components' .button-icon nodes and outlive this instance), and
+// removed on unmount so playerStyle toggles don't stack orphaned closures.
+const coverContainerRef = ref(null);
+const buttonAnimationCleanups = [];
+
 onMounted(() => {
-  const buttons = document.querySelectorAll(".button-icon");
+  const root = coverContainerRef.value;
+  if (!root) return;
+  const buttons = root.querySelectorAll(".button-icon");
   buttons.forEach((button) => {
-    // 悬停动画
-    button.addEventListener("mouseenter", () => {
+    const onMouseEnter = () => {
       gsap.to(button, {
         scale: 1.1,
         duration: 0.2,
         ease: "power1.out",
       });
-    });
-    button.addEventListener("mouseleave", () => {
+    };
+    const onMouseLeave = () => {
       gsap.to(button, {
         scale: 1,
         duration: 0.2,
         ease: "power1.inOut",
       });
-    });
-    // 点击动画
-    button.addEventListener("mousedown", () => {
+    };
+    const onMouseDown = () => {
       gsap.to(button, {
         scale: 0.9,
         duration: 0.1,
         ease: "power1.in",
       });
-    });
-    button.addEventListener("mouseup", () => {
+    };
+    const onMouseUp = () => {
       gsap.to(button, {
         scale: 1.1,
         duration: 0.2,
         ease: "power1.out",
       });
+    };
+    button.addEventListener("mouseenter", onMouseEnter);
+    button.addEventListener("mouseleave", onMouseLeave);
+    button.addEventListener("mousedown", onMouseDown);
+    button.addEventListener("mouseup", onMouseUp);
+    buttonAnimationCleanups.push(() => {
+      button.removeEventListener("mouseenter", onMouseEnter);
+      button.removeEventListener("mouseleave", onMouseLeave);
+      button.removeEventListener("mousedown", onMouseDown);
+      button.removeEventListener("mouseup", onMouseUp);
     });
   });
+});
+
+onUnmounted(() => {
+  buttonAnimationCleanups.forEach((cleanup) => cleanup());
+  buttonAnimationCleanups.length = 0;
 });
 </script>
 
 <style lang="scss" scoped>
 .player-cover-container {
-  --cover-size: min(50vh, 38vw);
+  /* 高度预算：控件区约 15rem + 纵向 gap 2rem + 上下对称 padding 各 2.5rem */
+  --cover-controls-budget: 19.5rem;
+  --cover-size: max(10rem, min(50vh, 38vw, calc(100vh - var(--cover-controls-budget) - 5rem)));
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2rem;
+  /* 顶部为绝对定位的关闭手柄保留出画余量（矮窗口不被居中布局顶出视口）；
+     底部等量 padding 保持视觉中心对称 */
+  padding: 2.5rem 0;
 
   @media screen and (max-height: 768px) {
-    --cover-size: min(45vh, 38vw);
+    --cover-size: max(9rem, min(45vh, 38vw, calc(100vh - var(--cover-controls-budget) - 4.5rem)));
     gap: 1.5rem;
+    padding: 2.25rem 0;
   }
 
   .cover-stage {
     position: relative;
-    width: var(--cover-size);
-    height: var(--cover-size);
+    /* 同时受容器实际宽度约束（.left 为 40% 宽减内边距，38vw 在窄局部会超宽） */
+    width: min(var(--cover-size), 100%);
+    aspect-ratio: 1 / 1;
   }
 
   .amll-close-action {
@@ -416,10 +445,10 @@ onMounted(() => {
     position: relative;
     width: 100%;
     height: 100%;
-    border-radius: 12px;
+    border-radius: var(--radius-panel);
     transition:
-      transform 0.5s ease-out,
-      filter 0.5s ease-out;
+      transform var(--duration-500) var(--ease-out),
+      filter var(--duration-500) var(--ease-out);
     &.pause {
       transform: scale(0.95);
     }
@@ -430,11 +459,13 @@ onMounted(() => {
     .album {
       width: 100%;
       height: 100%;
-      border-radius: 12px;
+      border-radius: var(--radius-panel);
     }
   }
   .controls {
-    width: var(--cover-size);
+    width: min(var(--cover-size), 100%);
+    /* 封面被矮窗口压得很小时，控件区保底宽度，避免按钮/时间挤作一团 */
+    min-width: min(18rem, 100%);
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
@@ -462,11 +493,11 @@ onMounted(() => {
         flex-direction: column;
         gap: 0.25rem;
         .name {
-          font-size: 1.5rem;
+          font-size: clamp(1.15rem, calc(var(--cover-size) * 0.055), 1.5rem);
           font-weight: 600;
         }
         .artists {
-          font-size: 1rem;
+          font-size: clamp(0.85rem, calc(var(--cover-size) * 0.04), 1rem);
           opacity: 1;
           .artist-name {
             cursor: pointer;
@@ -485,14 +516,14 @@ onMounted(() => {
           font-size: 1.75rem;
           cursor: pointer;
           opacity: 1;
-          transition: opacity 0.2s ease;
+          transition: opacity var(--duration-200) var(--ease-out);
         }
 
         .more-button {
           font-size: 1.75rem;
           cursor: pointer;
           opacity: 1;
-          transition: opacity 0.2s ease;
+          transition: opacity var(--duration-200) var(--ease-out);
           &:hover {
             opacity: 1;
           }
@@ -534,7 +565,7 @@ onMounted(() => {
           opacity: 1;
           font-size: 0.75rem;
           padding: 2px 8px;
-          border-radius: 4px;
+          border-radius: var(--radius-xs);
           white-space: nowrap;
           .wave-icon {
             width: 14px;
@@ -573,8 +604,8 @@ onMounted(() => {
         opacity: 1;
         cursor: pointer;
         transition:
-          opacity 0.2s ease,
-          transform 0.1s ease-out;
+          opacity var(--duration-200) var(--ease-out),
+          transform var(--duration-150) var(--ease-out);
         &:hover {
           opacity: 1;
         }

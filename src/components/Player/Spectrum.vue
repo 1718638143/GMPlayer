@@ -7,7 +7,7 @@
 
 <script setup>
 import { ensureSpectrumUpdate } from "@/utils/AudioContext";
-import { getSpectrumFrame } from "@/utils/AudioContext/SpectrumFrame";
+import { getSpectrumFrame, getSpectrumVersion } from "@/utils/AudioContext/SpectrumFrame";
 
 const props = defineProps({
   show: {
@@ -54,11 +54,15 @@ const updateCanvasSize = () => {
  * @param {Array} data - 包含音频频谱数据的数组
  */
 const drawSpectrum = (data) => {
-  if (!data || !data.length) return;
-
   const canvas = canvasRef.value;
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
+  if (!data || !data.length) {
+    // Frame was cleared (pause/track change) — wipe the canvas once instead of
+    // leaving stale bars behind.
+    ctx.clearRect(0, 0, cachedWidth, cachedHeight);
+    return;
+  }
 
   const canvasWidth = cachedWidth;
   const canvasHeight = cachedHeight;
@@ -130,12 +134,26 @@ const addRoundRect = (ctx, x, y, width, height, radius) => {
 
 // Managed RAF loop. Keep it alive while mounted so opening BigPlayer can draw
 // the latest frame immediately after the user toggles spectrum display.
+// Two gates keep the loop from burning CPU when its output cannot be seen:
+// - version gate: skip the canvas work when no new spectrum frame arrived
+//   (paused / analysis stopped / background tab)
+// - show gate: BigPlayer slides off-screen via translateY(100%) when closed,
+//   taking this fixed-position canvas with it — after the slide transition
+//   settles there is nothing visible to draw, so the loop parks entirely
+//   until `show` flips back.
 let rafId = null;
+let lastDrawnVersion = -1;
+let hideParkTimer = null;
+const HIDE_PARK_DELAY_MS = 1000; // outlasts the 0.5s close transition
 
 const startDraw = () => {
   if (rafId) return;
   const loop = () => {
-    drawSpectrum(getSpectrumFrame());
+    const version = getSpectrumVersion();
+    if (version !== lastDrawnVersion) {
+      lastDrawnVersion = version;
+      drawSpectrum(getSpectrumFrame());
+    }
     rafId = requestAnimationFrame(loop);
   };
   loop();
@@ -148,14 +166,31 @@ const stopDraw = () => {
   }
 };
 
+const clearHideParkTimer = () => {
+  if (hideParkTimer) {
+    clearTimeout(hideParkTimer);
+    hideParkTimer = null;
+  }
+};
+
 // ResizeObserver to track canvas size changes
 let resizeObserver = null;
 
 watch(
   () => props.show,
-  () => {
+  (visible) => {
     updateCanvasSize();
     ensureSpectrumUpdate();
+    clearHideParkTimer();
+    if (visible) {
+      lastDrawnVersion = -1; // force an immediate redraw of the latest frame
+      startDraw();
+    } else {
+      hideParkTimer = setTimeout(() => {
+        hideParkTimer = null;
+        stopDraw();
+      }, HIDE_PARK_DELAY_MS);
+    }
   },
 );
 
@@ -169,10 +204,14 @@ onMounted(() => {
     resizeObserver.observe(canvasRef.value.parentElement);
   }
 
-  startDraw();
+  // Off-screen at mount (player closed) — the show watcher starts the loop.
+  if (props.show) {
+    startDraw();
+  }
 });
 
 onBeforeUnmount(() => {
+  clearHideParkTimer();
   stopDraw();
   if (resizeObserver) {
     resizeObserver.disconnect();
@@ -193,7 +232,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   opacity: 0.6;
   pointer-events: none;
-  transition: opacity 0.3s;
+  transition: opacity var(--duration-300) var(--ease-out);
   mask: linear-gradient(
     90deg,
     hsla(0, 0%, 100%, 0) 0,
