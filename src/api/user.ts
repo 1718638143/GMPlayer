@@ -27,6 +27,16 @@ export const user = {
     }),
 
   /**
+   * 获取用户详情
+   */
+  getDetail: (uid: number) =>
+    request<any>({
+      method: "GET",
+      url: "/user/detail",
+      params: { uid, timestamp: Date.now() },
+    }),
+
+  /**
    * 获取用户歌单列表
    */
   getPlaylist: (uid: number, limit = 30, offset = 0) =>
@@ -126,6 +136,18 @@ export const user = {
       url: "/like",
       params: { id, like, timestamp: Date.now() },
     }),
+
+  /**
+   * 关注/取消关注用户
+   * @param t - 1为关注，0为取消关注
+   */
+  follow: (id: number, t: 0 | 1) =>
+    request<any>({
+      method: "GET",
+      hiddenBar: true,
+      url: "/follow",
+      params: { id, t, timestamp: Date.now() },
+    }),
 };
 
 export default user;
@@ -133,7 +155,9 @@ export default user;
 // Legacy exports
 export const getUserLevel = user.getLevel;
 export const getUserSubcount = user.getSubcount;
+export const getUserDetail = user.getDetail;
 export const getUserPlaylist = user.getPlaylist;
+export const followUser = user.follow;
 export const getLikelist = user.getLikelist;
 export const setLikeSong = user.likeSong;
 export const getCloud = user.getCloud;
