@@ -5,6 +5,9 @@ import axios, {
   InternalAxiosRequestConfig,
   AxiosHeaders,
 } from "axios";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { isMobileDevice } from "@/utils/tauri/mobile";
+import { isTauri } from "@/utils/tauri/windowManager";
 
 // Extend AxiosRequestConfig to include custom hiddenBar property
 export interface CustomAxiosRequestConfig extends AxiosRequestConfig {
@@ -31,6 +34,20 @@ axios.defaults.baseURL = baseURL;
 axios.defaults.timeout = 30000;
 axios.defaults.headers.common["X-Requested-With"] = "XMLHttpRequest";
 axios.defaults.withCredentials = true;
+
+// Android/iOS WebViews enforce browser CORS for production API requests. Use
+// Tauri's native HTTP transport on mobile builds so login and its cookie jar
+// stay on the same transport. Development keeps using Vite's same-origin proxy.
+const useNativeMobileHttp =
+  import.meta.env.PROD && typeof window !== "undefined" && isTauri() && isMobileDevice();
+
+if (useNativeMobileHttp) {
+  axios.defaults.adapter = "fetch";
+  axios.defaults.env = {
+    ...axios.defaults.env,
+    fetch: tauriFetch,
+  };
+}
 
 // 请求拦截
 axios.interceptors.request.use(
