@@ -29,16 +29,13 @@
               fallback-src="/images/pic/default.png"
             />
             <div class="num" v-else-if="row.item?.num">
-              <n-text :depth="2" v-html="row.item?.num" />
+              <n-text :depth="2">{{ row.item?.num }}</n-text>
             </div>
             <div class="name">
               <div class="title">
-                <n-text
-                  class="text-hidden"
-                  depth="2"
-                  v-html="row.item?.name"
-                  @click.stop="jumpLink(row.item?.id, 1)"
-                />
+                <n-text class="text-hidden" depth="2" @click.stop="jumpLink(row.item?.id, 1)">
+                  {{ row.item?.name }}
+                </n-text>
                 <n-tag
                   v-if="row.item?.fee == 1 || row.item?.fee == 4"
                   class="vip"
@@ -76,16 +73,15 @@
                   class="text-hidden"
                   :artistsData="row.item?.artist"
                 />
-                <n-text
-                  class="alia text-hidden"
-                  depth="3"
-                  v-if="row.item?.alia[0]"
-                  v-html="row.item.alia[0]"
-                />
+                <n-text class="alia text-hidden" depth="3" v-if="row.item?.alia[0]">
+                  {{ row.item.alia[0] }}
+                </n-text>
               </div>
             </div>
             <div class="album" v-if="!hideAlbum && row.item?.album">
-              <n-text v-html="row.item.album.name" @click.stop="jumpLink(row.item.album.id, 10)" />
+              <n-text @click.stop="jumpLink(row.item.album.id, 10)">
+                {{ row.item.album.name }}
+              </n-text>
             </div>
             <div class="action">
               <n-icon
@@ -108,7 +104,7 @@
               </n-icon>
               <n-icon class="more" size="20" :component="More" @click.stop="openDrawer(row.item)" />
             </div>
-            <n-text class="time" v-html="row.item.time" />
+            <n-text class="time">{{ row.item.time }}</n-text>
           </n-card>
         </template>
       </n-virtual-list>
@@ -132,16 +128,13 @@
             fallback-src="/images/pic/default.png"
           />
           <div class="num" v-else-if="item?.num">
-            <n-text :depth="2" v-html="item?.num" />
+            <n-text :depth="2">{{ item?.num }}</n-text>
           </div>
           <div class="name">
             <div class="title">
-              <n-text
-                class="text-hidden"
-                depth="2"
-                v-html="item?.name"
-                @click.stop="jumpLink(item?.id, 1)"
-              />
+              <n-text class="text-hidden" depth="2" @click.stop="jumpLink(item?.id, 1)">
+                {{ item?.name }}
+              </n-text>
               <n-tag
                 v-if="item?.fee == 1 || item?.fee == 4"
                 class="vip"
@@ -168,16 +161,13 @@
             </div>
             <div class="meta">
               <AllArtists v-if="item?.artist" class="text-hidden" :artistsData="item?.artist" />
-              <n-text
-                class="alia text-hidden"
-                depth="3"
-                v-if="item?.alia[0]"
-                v-html="item.alia[0]"
-              />
+              <n-text class="alia text-hidden" depth="3" v-if="item?.alia[0]">
+                {{ item.alia[0] }}
+              </n-text>
             </div>
           </div>
           <div class="album" v-if="!hideAlbum && item?.album">
-            <n-text v-html="item.album.name" @click.stop="jumpLink(item.album.id, 10)" />
+            <n-text @click.stop="jumpLink(item.album.id, 10)">{{ item.album.name }}</n-text>
           </div>
           <div class="action">
             <n-icon
@@ -200,7 +190,7 @@
             </n-icon>
             <n-icon class="more" size="20" :component="More" @click.stop="openDrawer(item)" />
           </div>
-          <n-text class="time" v-html="item.time" />
+          <n-text class="time">{{ item.time }}</n-text>
         </n-card>
       </template>
       <!-- 右键菜单 -->
@@ -209,12 +199,16 @@
         placement="bottom-start"
         trigger="manual"
         size="large"
+        :flip="true"
+        :scrollable="true"
+        :z-index="2600"
+        to="body"
         :x="rightMenuX"
         :y="rightMenuY"
         :options="rightMenuOptions"
         :show="rightMenuShow"
         :on-clickoutside="onClickoutside"
-        @select="rightMenuShow = false"
+        @select="closeRightMenu"
       />
       <!-- 移动端抽屉 -->
       <n-drawer
@@ -554,6 +548,11 @@ const rightMenuProps = () => ({
     "--n-prefix-color": "var(--n-text-color-3, currentColor)",
     "--n-suffix-color": "var(--n-text-color-3, currentColor)",
     "--n-divider-color": "var(--acrylic-border, rgba(0, 0, 0, 0.08))",
+    minWidth: "min(188px, calc(100vw - 20px))",
+    maxWidth: "min(248px, calc(100vw - 20px))",
+    maxHeight: "min(420px, calc(100vh - 20px))",
+    boxSizing: "border-box",
+    overflow: "visible",
   },
 });
 
@@ -574,134 +573,145 @@ const renderIcon = (icon, filled = true) => {
   };
 };
 
-// 打开右键菜单
+const CONTEXT_MENU_MARGIN = 10;
+// 第一次修正落地后基本就到位了，第三轮几乎从不改变结果，
+// 而每一轮都是一次强制同步布局 + 一次下拉重渲染。
+const CONTEXT_MENU_POSITION_MAX_ATTEMPTS = 2;
+let contextMenuPositionToken = 0;
+let contextMenuEl = null;
+
+const clampContextMenuPoint = (x, y) => {
+  return {
+    // Keep the cursor anchor intact. NDropdown's follower uses the measured
+    // menu rectangle to flip around the viewport; guessing a menu height here
+    // makes a bottom-edge context menu jump hundreds of pixels away.
+    x: Math.max(x, CONTEXT_MENU_MARGIN),
+    y: Math.max(y, CONTEXT_MENU_MARGIN),
+  };
+};
+
+const getContextMenuViewportOffset = (start, size, viewportSize) => {
+  const maxStart = Math.max(CONTEXT_MENU_MARGIN, viewportSize - size - CONTEXT_MENU_MARGIN);
+  const clampedStart = Math.min(Math.max(start, CONTEXT_MENU_MARGIN), maxStart);
+  return clampedStart - start;
+};
+
+// 菜单节点在一次打开期间不会重建，缓存它避免每轮都重新 querySelector 整个文档。
+const resolveContextMenuEl = () => {
+  if (contextMenuEl?.isConnected) return contextMenuEl;
+  const menu = document.querySelector(".data-list-context-dropdown.n-dropdown-menu");
+  contextMenuEl = menu instanceof HTMLElement ? menu : null;
+  return contextMenuEl;
+};
+
+const settleContextMenuPosition = (attempt = 0, token = contextMenuPositionToken) => {
+  if (attempt >= CONTEXT_MENU_POSITION_MAX_ATTEMPTS || token !== contextMenuPositionToken) return;
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      if (token !== contextMenuPositionToken || !rightMenuShow.value) return;
+      const menu = resolveContextMenuEl();
+      if (!menu) return;
+
+      const rect = menu.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const offsetX = getContextMenuViewportOffset(rect.left, rect.width, viewportWidth);
+      const offsetY = getContextMenuViewportOffset(rect.top, rect.height, viewportHeight);
+      if (!offsetX && !offsetY) return;
+
+      rightMenuX.value += offsetX;
+      rightMenuY.value += offsetY;
+      settleContextMenuPosition(attempt + 1, token);
+    });
+  });
+};
+
+// 打开右键菜单：一级只保留动作分类，具体操作放入 children，避免云盘页面把菜单撑出视口。
 const openRightMenu = (e, data) => {
   e.preventDefault();
+  const positionToken = ++contextMenuPositionToken;
+  contextMenuEl = null;
   rightMenuShow.value = false;
   nextTick().then(() => {
-    rightMenuOptions.value = [
+    if (positionToken !== contextMenuPositionToken) return;
+    const isCloudRoute = router.currentRoute.value.name === "user-cloud";
+    const playbackChildren = [
       {
         key: "play",
         label: t("menu.play"),
         icon: renderIcon(PlayOne),
-        props: {
-          onClick: () => {
-            playSong(props.listData, data);
-          },
-        },
+        props: { onClick: () => playSong(props.listData, data) },
       },
       {
         key: "nextPlay",
         label: t("menu.nextPlay"),
         icon: renderIcon(AddMusic),
         show: !(music.getPersonalFmMode || music.getPlaySongData?.id === data.id),
-        props: {
-          onClick: () => {
-            music.addSongToNext(data);
-          },
-        },
+        props: { onClick: () => music.addSongToNext(data) },
       },
+    ];
+    const libraryChildren = [
       {
         key: "add",
         label: t("menu.add"),
         icon: renderIcon(ListAdd),
-        show: user.userLogin ? true : false,
-        props: {
-          onClick: () => {
-            addPlayListRef.value.openAddToPlaylist(data.id);
-          },
-        },
+        show: Boolean(user.userLogin),
+        props: { onClick: () => addPlayListRef.value.openAddToPlaylist(data.id) },
       },
       {
         key: "download",
         label: t("menu.download"),
         icon: renderIcon(DownloadFour),
-        props: {
-          onClick: () => {
-            downloadSongRef.value.openDownloadModal(data);
-          },
-        },
+        props: { onClick: () => downloadSongRef.value.openDownloadModal(data) },
       },
+    ];
+    const discoverChildren = [
       {
         key: "comment",
         label: t("menu.comment"),
         icon: renderIcon(Comments, false),
-        props: {
-          onClick: () => {
-            router.push(`/comment?id=${data.id}`);
-          },
-        },
+        props: { onClick: () => router.push(`/comment?id=${data.id}`) },
       },
       {
         key: "mv",
         label: t("menu.mv"),
         icon: renderIcon(Video, false),
         show: Boolean(data.mv && data.mv !== 0),
-        props: {
-          onClick: () => {
-            router.push(`/video?id=${data.mv}`);
-          },
-        },
-      },
-      {
-        key: "line1",
-        type: "divider",
-        show: router.currentRoute.value.name === "user-cloud" ? true : false,
-      },
-      {
-        key: "delete",
-        label: t("menu.delete"),
-        icon: renderIcon(DeleteFour),
-        show: router.currentRoute.value.name === "user-cloud" ? true : false,
-        props: {
-          onClick: () => {
-            delCloudSong(data);
-          },
-        },
-      },
-      {
-        key: "match",
-        label: t("menu.match"),
-        icon: renderIcon(FileMusic),
-        show: router.currentRoute.value.name === "user-cloud" ? true : false,
-        props: {
-          onClick: () => {
-            cloudMatchRef.value.openCloudMatch(data);
-          },
-        },
-      },
-      {
-        key: "line2",
-        type: "divider",
+        props: { onClick: () => router.push(`/video?id=${data.mv}`) },
       },
       {
         key: "search",
         label: t("menu.search"),
         icon: renderIcon(Search, false),
         props: {
-          onClick: () => {
+          onClick: () =>
             router.push({
               path: "/search/songs",
-              query: {
-                keywords: data.name,
-                page: 1,
-              },
-            });
-          },
+              query: { keywords: data.name, page: 1 },
+            }),
         },
       },
+    ];
+    const cloudChildren = [
+      {
+        key: "match",
+        label: t("menu.match"),
+        icon: renderIcon(FileMusic),
+        props: { onClick: () => cloudMatchRef.value.openCloudMatch(data) },
+      },
+      {
+        key: "delete",
+        label: t("menu.delete"),
+        icon: renderIcon(DeleteFour),
+        props: { onClick: () => delCloudSong(data) },
+      },
+    ];
+    const copyChildren = [
       {
         key: "copyId",
-        label: t("menu.copy", {
-          name: t("general.name.song"),
-          other: "ID",
-        }),
+        label: t("menu.copy", { name: t("general.name.song"), other: "ID" }),
         icon: renderIcon(FileMusic, false),
-        props: {
-          onClick: () => {
-            copySongData(data.id, false);
-          },
-        },
+        props: { onClick: () => copySongData(data.id, false) },
       },
       {
         key: "copy",
@@ -710,21 +720,63 @@ const openRightMenu = (e, data) => {
           other: t("general.name.link"),
         }),
         icon: renderIcon(LinkTwo),
-        props: {
-          onClick: () => {
-            copySongData(data.id);
-          },
-        },
+        props: { onClick: () => copySongData(data.id) },
       },
     ];
+
+    rightMenuOptions.value = [
+      {
+        key: "playback",
+        label: t("menu.playback"),
+        icon: renderIcon(PlayOne),
+        children: playbackChildren,
+      },
+      {
+        key: "libraryActions",
+        label: t("menu.libraryActions"),
+        icon: renderIcon(ListAdd),
+        children: libraryChildren,
+      },
+      {
+        key: "discoverActions",
+        label: t("menu.discoverActions"),
+        icon: renderIcon(Comments, false),
+        children: discoverChildren,
+      },
+      ...(isCloudRoute
+        ? [
+            {
+              key: "cloudActions",
+              label: t("menu.cloudActions"),
+              icon: renderIcon(FileMusic),
+              children: cloudChildren,
+            },
+          ]
+        : []),
+      {
+        key: "copyActions",
+        label: t("menu.copyActions"),
+        icon: renderIcon(LinkTwo),
+        children: copyChildren,
+      },
+    ];
+
+    const point = clampContextMenuPoint(e.clientX, e.clientY);
+    rightMenuX.value = point.x;
+    rightMenuY.value = point.y;
     rightMenuShow.value = true;
-    rightMenuX.value = e.clientX;
-    rightMenuY.value = e.clientY;
+    settleContextMenuPosition(0, positionToken);
   });
 };
 
 // 点击菜单外部
 const onClickoutside = () => {
+  closeRightMenu();
+};
+
+const closeRightMenu = () => {
+  contextMenuPositionToken += 1;
+  contextMenuEl = null;
   rightMenuShow.value = false;
 };
 
@@ -1024,7 +1076,11 @@ const jumpLink = (id, type) => {
   margin: 40px 0;
 }
 
-:global(.data-list-context-dropdown.n-dropdown-menu) {
+:global(.data-list-context-dropdown),
+:global(.data-list-context-dropdown.n-dropdown-menu),
+:global(.data-list-context-dropdown .n-dropdown-menu),
+:global(.data-list-context-dropdown.n-dropdown-menu__content),
+:global(.n-dropdown-menu__content.data-list-context-dropdown) {
   --data-list-menu-bg: rgba(var(--app-shell-rgb, 242, 242, 244), 0.82);
   --data-list-menu-border: var(--acrylic-border, rgba(0, 0, 0, 0.08));
   --data-list-menu-hover: color-mix(
@@ -1033,7 +1089,7 @@ const jumpLink = (id, type) => {
     var(--main-color) 18%
   );
   padding: 6px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--data-list-menu-border);
   border-radius: var(--radius-panel);
   background-color: var(--data-list-menu-bg);
@@ -1042,7 +1098,38 @@ const jumpLink = (id, type) => {
   box-shadow:
     0 18px 46px rgb(0 0 0 / 14%),
     inset 0 0 0 1px var(--acrylic-border, rgba(255, 255, 255, 0.14));
-  min-width: 188px;
+  box-sizing: border-box;
+  min-width: min(188px, calc(100vw - 20px));
+  max-width: min(248px, calc(100vw - 20px));
+  max-height: min(420px, calc(100vh - 20px));
+  max-height: min(420px, calc(100dvh - 20px));
+}
+
+:global(.data-list-context-dropdown.n-dropdown-menu--scrollable),
+:global(.data-list-context-dropdown .n-dropdown-menu--scrollable) {
+  overflow: visible;
+}
+
+:global(.data-list-context-dropdown .n-dropdown-menu__content) {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+:global(.data-list-context-dropdown .n-scrollbar) {
+  max-height: min(420px, calc(100vh - 20px));
+  max-height: min(420px, calc(100dvh - 20px));
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+:global(.data-list-context-dropdown .n-scrollbar::-webkit-scrollbar) {
+  width: 6px;
+  height: 6px;
+}
+
+:global(.data-list-context-dropdown .n-scrollbar::-webkit-scrollbar-thumb) {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--n-text-color-3) 45%, transparent);
 }
 
 :global(.data-list-context-dropdown .n-dropdown-option-body) {
@@ -1061,6 +1148,9 @@ const jumpLink = (id, type) => {
 
 :global(.data-list-context-dropdown .n-dropdown-option-body__label) {
   letter-spacing: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 :global(.data-list-context-dropdown .n-dropdown-divider) {
