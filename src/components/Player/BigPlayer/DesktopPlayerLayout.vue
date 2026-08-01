@@ -4,9 +4,43 @@
       <n-text>{{ $t("other.lrcClicks") }}</n-text>
     </div>
 
-    <div class="left" ref="leftContentRef">
-      <PlayerCover v-if="setting.playerStyle === 'cover'" />
-      <PlayerRecord v-else-if="setting.playerStyle === 'record'" />
+    <div ref="leftContentRef" class="left">
+      <LayoutGroup id="desktop-player-content">
+        <AnimatePresence :initial="false">
+          <Motion
+            v-if="commentsOpen"
+            key="comments"
+            class="left-stage comment-stage"
+            :layout="true"
+            :initial="{ opacity: 0, x: -22, y: 8, scale: 0.99 }"
+            :animate="{ opacity: 1, x: 0, y: 0, scale: 1 }"
+            :exit="{ opacity: 0, x: -14, y: 5, scale: 0.995 }"
+            :transition="commentStageTransition"
+          >
+            <DesktopCommentPanel @close="$emit('closeComments')" />
+          </Motion>
+          <Motion
+            v-else
+            key="artwork"
+            class="left-stage artwork-stage"
+            :layout="true"
+            :initial="{ opacity: 0, x: 22, y: 8, scale: 0.99 }"
+            :animate="{ opacity: 1, x: 0, y: 0, scale: 1 }"
+            :exit="{ opacity: 0, x: 14, y: 5, scale: 0.995 }"
+            :transition="artworkStageTransition"
+          >
+            <PlayerCover
+              v-if="setting.playerStyle === 'cover'"
+              @openComments="$emit('openComments')"
+            />
+            <PlayerRecord
+              v-else-if="setting.playerStyle === 'record'"
+              @openComments="$emit('openComments')"
+            />
+          </Motion>
+        </AnimatePresence>
+      </LayoutGroup>
+      <PlayerCloseHandle />
     </div>
 
     <div
@@ -28,12 +62,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { musicStore, settingStore } from "@/store";
+import { AnimatePresence, LayoutGroup, Motion } from "motion-v";
 import PlayerCover from "../PlayerCover.vue";
 import PlayerRecord from "../PlayerRecord.vue";
 import DesktopLyricsPanel from "./DesktopLyricsPanel.vue";
 import DesktopQueuePanel from "./DesktopQueuePanel.vue";
+import DesktopCommentPanel from "./DesktopCommentPanel.vue";
+import PlayerCloseHandle from "../PlayerCloseHandle.vue";
 
 const props = defineProps<{
   lrcMouseStatus: boolean;
@@ -41,6 +78,7 @@ const props = defineProps<{
   hasLyrics: boolean;
   lyricsVisible: boolean;
   queueOpen: boolean;
+  commentsOpen: boolean;
   handleProgressSeek: (val: number) => void;
 }>();
 
@@ -48,6 +86,8 @@ defineEmits<{
   lrcMouseEnter: [];
   lrcAllLeave: [];
   lrcTextClick: [time: number];
+  openComments: [];
+  closeComments: [];
 }>();
 
 const music = musicStore();
@@ -58,6 +98,120 @@ const leftContentRef = ref<HTMLElement | null>(null);
 const rightContentRef = ref<HTMLElement | null>(null);
 const lyricsReady = computed(() => props.hasLyrics && !music.getLoadingState);
 const showLyrics = computed(() => lyricsReady.value && props.lyricsVisible);
+// This is deliberately slower and more damped than the mobile artwork spring.
+// The desktop hand-off travels farther, so the lower stiffness and heavier mass
+// keep it from snapping into place while still preserving a spring settle.
+const stageSpring = {
+  type: "spring",
+  stiffness: 180,
+  damping: 42,
+  mass: 1.35,
+  restDelta: 0.001,
+  restSpeed: 0.01,
+} as const;
+const stageOpacity = {
+  type: "tween",
+  duration: 0.62,
+  ease: [0.16, 1, 0.3, 1],
+} as const;
+const commentStageTransition = {
+  ...stageSpring,
+  default: stageSpring,
+  layout: stageSpring,
+  opacity: { ...stageOpacity, delay: 0.1 },
+} as const;
+const artworkStageTransition = {
+  ...stageSpring,
+  default: stageSpring,
+  layout: stageSpring,
+  opacity: { ...stageOpacity, delay: 0.04 },
+} as const;
+
+// 关闭手柄跟随封面/唱片舞台：测量舞台在 .left 内的位置，取「舞台顶部上方 1.5rem」
+// 那一点作为手柄中心（复刻封面/唱片视图里 bottom: calc(100% + 1.5rem) 的定位），
+// 写入 --close-handle-x / --close-handle-y，从而切到评论面板手柄纹丝不动、全屏也精确对齐。
+const setCloseHandleVars = (left: HTMLElement, anchor: DOMRect, leftRect: DOMRect) => {
+  const x = anchor.left + anchor.width / 2 - leftRect.left;
+  const y = anchor.top - leftRect.top - 24;
+  left.style.setProperty("--close-handle-x", `${Math.round(x)}px`);
+  left.style.setProperty("--close-handle-y", `${Math.round(y)}px`);
+};
+
+const applyCloseHandlePosition = () => {
+  const left = leftContentRef.value;
+  if (!left) return;
+  const leftRect = left.getBoundingClientRect();
+  // 优先：封面/唱片舞台顶部上方 1.5rem（复刻 --stage 定位）
+  const stage = left.querySelector<HTMLElement>(".cover-stage, .record-stage");
+  const stageRect = stage?.getBoundingClientRect();
+  if (stageRect?.width && stageRect?.height) {
+    setCloseHandleVars(left, stageRect, leftRect);
+    return;
+  }
+  // 回退：评论视图没有舞台时，用评论容器自身几何计算（同样取其顶部上方 1.5rem、
+  // 水平居中），这样评论面板打开期间缩放窗口手柄也随之更新，而不是冻在旧值。
+  const panel = left.querySelector<HTMLElement>(".desktop-comment-panel");
+  const panelRect = panel?.getBoundingClientRect();
+  if (panelRect?.width && panelRect?.height) {
+    setCloseHandleVars(left, panelRect, leftRect);
+  }
+};
+
+let measureFrame: number | null = null;
+const scheduleMeasure = () => {
+  if (measureFrame !== null) cancelAnimationFrame(measureFrame);
+  measureFrame = requestAnimationFrame(() => {
+    measureFrame = null;
+    applyCloseHandlePosition();
+  });
+};
+
+let leftResizeObserver: ResizeObserver | null = null;
+let settleTimer: number | null = null;
+
+const clearSettleTimer = () => {
+  if (settleTimer !== null) {
+    window.clearTimeout(settleTimer);
+    settleTimer = null;
+  }
+};
+
+onMounted(() => {
+  scheduleMeasure();
+  if (leftContentRef.value && typeof ResizeObserver !== "undefined") {
+    leftResizeObserver = new ResizeObserver(() => scheduleMeasure());
+    leftResizeObserver.observe(leftContentRef.value);
+  }
+});
+
+onBeforeUnmount(() => {
+  if (measureFrame !== null) cancelAnimationFrame(measureFrame);
+  clearSettleTimer();
+  leftResizeObserver?.disconnect();
+  leftResizeObserver = null;
+});
+
+// 返回封面/唱片视图时，等入场弹簧落定后重测（覆盖评论期间发生的窗口缩放）。
+// 快速来回切换会不断重排这一次重测，而不是堆积多个定时器。
+watch(
+  () => props.commentsOpen,
+  (open) => {
+    clearSettleTimer();
+    if (open) return;
+    settleTimer = window.setTimeout(() => {
+      settleTimer = null;
+      scheduleMeasure();
+    }, 750);
+  },
+);
+watch(
+  () => setting.playerStyle,
+  () => nextTick(scheduleMeasure),
+);
+watch(
+  () => music.getPlaySongData,
+  () => nextTick(scheduleMeasure),
+);
 
 defineExpose({ tipRef, leftContentRef, rightContentRef });
 </script>
@@ -77,10 +231,15 @@ defineExpose({ tipRef, leftContentRef, rightContentRef });
     .left {
       flex-basis: 100%;
       width: 100%;
-      padding-right: 0;
-      padding-left: 0;
       transform: translateX(0) scale(1);
-      align-items: center;
+    }
+
+    .artwork-stage {
+      padding-left: 0;
+    }
+
+    .comment-stage {
+      padding-right: clamp(24px, 3vw, 48px);
     }
   }
 
@@ -108,19 +267,41 @@ defineExpose({ tipRef, leftContentRef, rightContentRef });
   .left {
     flex: 0 0 40%;
     width: 40%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding-left: 2rem;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
     box-sizing: border-box;
     transition:
       flex-basis 0.34s cubic-bezier(0.25, 1, 0.5, 1),
       width 0.34s cubic-bezier(0.25, 1, 0.5, 1),
-      padding 0.34s cubic-bezier(0.25, 1, 0.5, 1),
       transform 0.34s cubic-bezier(0.25, 1, 0.5, 1),
       opacity 0.24s ease;
     will-change: width, transform, opacity;
+  }
+
+  .left-stage {
+    position: absolute;
+    inset: 0;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    will-change: transform, opacity;
+  }
+
+  .artwork-stage {
+    align-items: center;
+    justify-content: center;
+    padding-left: 2rem;
+  }
+
+  .comment-stage {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: clamp(82px, 10vh, 112px) clamp(8px, 1vw, 18px) clamp(84px, 11vh, 112px)
+      clamp(24px, 3vw, 48px);
   }
 
   .right {

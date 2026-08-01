@@ -25,6 +25,7 @@ declare module 'vue' {
     CoverLists: typeof import('./src/components/DataList/CoverLists.vue')['default']
     CreatePlaylist: typeof import('./src/components/DataModal/CreatePlaylist.vue')['default']
     DataLists: typeof import('./src/components/DataList/DataLists.vue')['default']
+    DesktopCommentPanel: typeof import('./src/components/Player/BigPlayer/DesktopCommentPanel.vue')['default']
     DesktopLyricsPanel: typeof import('./src/components/Player/BigPlayer/DesktopLyricsPanel.vue')['default']
     DesktopPlayerLayout: typeof import('./src/components/Player/BigPlayer/DesktopPlayerLayout.vue')['default']
     DesktopQueuePanel: typeof import('./src/components/Player/BigPlayer/DesktopQueuePanel.vue')['default']
@@ -118,6 +119,7 @@ declare module 'vue' {
     PaPlayLists: typeof import('./src/components/Personalized/PaPlayLists.vue')['default']
     PaRadar: typeof import('./src/components/Personalized/PaRadar.vue')['default']
     Player: typeof import('./src/components/Player/index.vue')['default']
+    PlayerCloseHandle: typeof import('./src/components/Player/PlayerCloseHandle.vue')['default']
     PlayerCover: typeof import('./src/components/Player/PlayerCover.vue')['default']
     PlayerRecord: typeof import('./src/components/Player/PlayerRecord.vue')['default']
     PlayListDrawer: typeof import('./src/components/DataModal/PlayListDrawer.vue')['default']
@@ -139,6 +141,7 @@ declare module 'vue' {
     SmallSongData: typeof import('./src/components/DataList/SmallSongData.vue')['default']
     Spectrum: typeof import('./src/components/Player/Spectrum.vue')['default']
     TitleBar: typeof import('./src/components/TitleBar/index.vue')['default']
+    UserLists: typeof import('./src/components/DataList/UserLists.vue')['default']
     VideoLists: typeof import('./src/components/DataList/VideoLists.vue')['default']
     WindowControls: typeof import('./src/components/TitleBar/WindowControls.vue')['default']
   }

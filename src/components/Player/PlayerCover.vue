@@ -1,9 +1,6 @@
 <template>
   <div ref="coverContainerRef" class="player-cover-container">
     <div class="cover-stage">
-      <div class="amll-close-action">
-        <ControlThumb aria-label="Close player" @click="closeBigPlayer" />
-      </div>
       <Transition name="fade" mode="out-in">
         <div
           :key="`cover_pic--${music.getPlaySongData?.album?.pic ?? defaultCover}`"
@@ -13,33 +10,55 @@
             music.getLoadingState ? 'loading' : '',
           ]"
         >
-          <img
-            class="album"
-            :src="
-              music.getPlaySongData && music.getPlaySongData.album
-                ? music.getPlaySongData.album.picUrl.replace(/^http:/, 'https:') +
-                  '?param=1024y1024'
-                : '/images/pic/default.png'
-            "
-            alt="cover"
-          />
+          <Motion
+            :key="sharedLayoutIds.cover"
+            as-child
+            :layout-id="sharedLayoutIds.cover"
+            :transition="sharedContentTransition"
+          >
+            <img
+              class="album"
+              :src="
+                music.getPlaySongData && music.getPlaySongData.album
+                  ? music.getPlaySongData.album.picUrl.replace(/^http:/, 'https:') +
+                    '?param=1024y1024'
+                  : '/images/pic/default.png'
+              "
+              alt="cover"
+            />
+          </Motion>
         </div>
       </Transition>
     </div>
     <div class="controls">
       <div class="song-info">
         <div class="text">
-          <span class="name text-hidden">
-            {{ music.getPlaySongData ? music.getPlaySongData.name : $t("other.noSong") }}
-          </span>
-          <span v-if="music.getPlaySongData" class="artists text-hidden">
-            <span v-for="(ar, index) in music.getPlaySongData.artist" :key="ar.id">
-              <span class="artist-name" @click="routerJump('/artist', { id: ar.id })">{{
-                ar.name
-              }}</span>
-              <span v-if="index < music.getPlaySongData.artist.length - 1"> / </span>
+          <Motion
+            :key="sharedLayoutIds.title"
+            as-child
+            :layout-id="sharedLayoutIds.title"
+            :transition="sharedContentTransition"
+          >
+            <span class="name text-hidden">
+              {{ music.getPlaySongData ? music.getPlaySongData.name : $t("other.noSong") }}
             </span>
-          </span>
+          </Motion>
+          <Motion
+            v-if="music.getPlaySongData"
+            :key="sharedLayoutIds.artists"
+            as-child
+            :layout-id="sharedLayoutIds.artists"
+            :transition="sharedContentTransition"
+          >
+            <span class="artists text-hidden">
+              <span v-for="(ar, index) in music.getPlaySongData.artist" :key="ar.id">
+                <span class="artist-name" @click="routerJump('/artist', { id: ar.id })">{{
+                  ar.name
+                }}</span>
+                <span v-if="index < music.getPlaySongData.artist.length - 1"> / </span>
+              </span>
+            </span>
+          </Motion>
         </div>
         <div class="action-row">
           <n-icon
@@ -119,7 +138,7 @@
           :component="IconForward"
           @click.stop="music.setPlaySongIndex('next')"
         />
-        <n-icon class="button-icon" :component="MessageRound" @click="goToComment" />
+        <n-icon class="button-icon" :component="MessageRound" @click.stop="$emit('openComments')" />
       </div>
       <div class="volume-control">
         <BouncingSlider
@@ -167,20 +186,34 @@ import { useRouter } from "vue-router";
 import { setSeek } from "@/utils/AudioContext";
 import { NativeRustSound } from "@/utils/tauri/NativeRustSound";
 import BouncingSlider from "./BouncingSlider.vue";
-import ControlThumb from "./ControlThumb.vue";
 import defaultCover from "/images/pic/default.png?url";
 import gsap from "gsap";
 import { NIcon } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { isWindowsTauri, windowManager } from "@/utils/tauri/windowManager";
+import { Motion } from "motion-v";
+import { getDesktopPlayerSharedLayoutIds } from "./desktopSharedLayout";
 
 const router = useRouter();
+defineEmits(["openComments"]);
 const music = musicStore();
 const user = userStore();
 const setting = settingStore();
 const { persistData } = storeToRefs(music);
 const { t } = useI18n();
 const isTauriEnv = ref(typeof window !== "undefined" && "__TAURI__" in window);
+// Shared elements should hand off only between views of the same song. Remounting
+// them under a song-scoped layout id prevents track changes from scaling old
+// artwork/text into the new song's geometry.
+const sharedLayoutIds = computed(() => getDesktopPlayerSharedLayoutIds(music.getPlaySongData?.id));
+const sharedContentTransition = {
+  type: "spring",
+  stiffness: 180,
+  damping: 42,
+  mass: 1.35,
+  restDelta: 0.001,
+  restSpeed: 0.01,
+};
 
 // MiniPlayer / DesktopLyrics 切换
 const toggleMiniPlayer = async () => {
@@ -330,21 +363,6 @@ const routerJump = (url, query) => {
   });
 };
 
-// 跳转到评论
-const goToComment = () => {
-  if (music.getPlaySongData?.id) {
-    music.setBigPlayerState(false);
-    router.push({
-      path: "/comment",
-      query: { id: music.getPlaySongData.id },
-    });
-  }
-};
-
-const closeBigPlayer = () => {
-  music.setBigPlayerState(false);
-};
-
 // GSAP 动画
 // Scoped to this component's own buttons (a document-wide query would attach
 // to other components' .button-icon nodes and outlive this instance), and
@@ -429,16 +447,6 @@ onUnmounted(() => {
     /* 同时受容器实际宽度约束（.left 为 40% 宽减内边距，38vw 在窄局部会超宽） */
     width: min(var(--cover-size), 100%);
     aspect-ratio: 1 / 1;
-  }
-
-  .amll-close-action {
-    position: absolute;
-    left: 50%;
-    bottom: calc(100% + 1.5rem);
-    width: 0;
-    height: 0;
-    z-index: 3;
-    mix-blend-mode: plus-lighter;
   }
 
   .pic {

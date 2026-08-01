@@ -127,10 +127,13 @@
           :hasLyrics="hasLyrics"
           :lyricsVisible="desktopLyricsVisible"
           :queueOpen="desktopQueueOpen"
+          :commentsOpen="desktopCommentsOpen"
           :handleProgressSeek="handleProgressSeek"
           @lrcMouseEnter="lrcMouseStatus = setting.lrcMousePause ? true : false"
           @lrcAllLeave="lrcAllLeave"
           @lrcTextClick="lrcTextClick"
+          @openComments="openDesktopComments"
+          @closeComments="desktopCommentsOpen = false"
         />
 
         <DesktopToggleControls
@@ -138,7 +141,7 @@
           :queueOpen="desktopQueueOpen"
           :hasLyrics="hasLyrics"
           @toggleLyrics="toggleDesktopLyrics"
-          @toggleQueue="desktopQueueOpen = !desktopQueueOpen"
+          @toggleQueue="toggleDesktopQueue"
         />
 
         <Spectrum v-if="setting.musicFrequency" :height="60" :show="music.showBigPlayer" />
@@ -220,6 +223,7 @@ const mobileCoverRootRef = computed(() =>
 const mobileLayer = ref(1);
 const mobileQueueOpen = ref(false);
 const desktopQueueOpen = ref(false);
+const desktopCommentsOpen = ref(false);
 const mobileExiting = ref(false);
 const mobileTransitionActive = ref(false);
 const mobileAlbumLayerReady = ref(false);
@@ -859,6 +863,7 @@ const desktopDragBlockSelector = [
   ".tip",
   ".desktop-toggle-controls",
   ".desktop-queue-panel",
+  ".desktop-comment-panel",
   ".amll-close-action",
   ".control-thumb",
   ".controls",
@@ -948,8 +953,22 @@ const resetMobileQueueState = () => {
   music.showPlayList = false;
 };
 
-const resetDesktopQueueState = () => {
+const resetDesktopOverlayState = () => {
   desktopQueueOpen.value = false;
+  desktopCommentsOpen.value = false;
+};
+
+const openDesktopComments = () => {
+  if (!music.getPlaySongData?.id) return;
+  desktopQueueOpen.value = false;
+  desktopCommentsOpen.value = true;
+  if (hasLyrics.value) desktopLyricsVisible.value = true;
+};
+
+const toggleDesktopQueue = () => {
+  const nextState = !desktopQueueOpen.value;
+  desktopQueueOpen.value = nextState;
+  if (nextState) desktopCommentsOpen.value = false;
 };
 
 const toggleDesktopLyrics = () => {
@@ -1252,7 +1271,7 @@ watch(
         nextTick(() => lyricsScroll(music.getPlaySongLyricIndex));
         return;
       }
-      resetDesktopQueueState();
+      resetDesktopOverlayState();
       clearMiniUiVars();
       requestAnimationFrame(() => {
         lyricsScroll(music.getPlaySongLyricIndex);
@@ -1270,7 +1289,7 @@ watch(
       if (!mobileInteractive.value) animateProgressTo(0, finishMobileExit);
       scheduleMobileExitFallback();
     } else {
-      resetDesktopQueueState();
+      resetDesktopOverlayState();
     }
   },
 );
@@ -1282,7 +1301,7 @@ watch(
       progressAnimation?.stop();
       progressAnimation = null;
       resetMobileQueueState();
-      desktopQueueOpen.value = false;
+      resetDesktopOverlayState();
       mobileExiting.value = false;
       mobileTransitionActive.value = false;
       mobileTransitionDirection.value = null;

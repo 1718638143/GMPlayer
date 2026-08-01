@@ -1,8 +1,8 @@
 <template>
-  <Transition mode="out-in">
+  <Transition mode="out-in" :css="animated">
     <n-card v-if="Object.keys(commentData).length" class="comment" hoverable>
       <div class="user">
-        <div class="avatar">
+        <div class="avatar" @click="goToUser(commentData.user.userId)">
           <img
             class="avatarImg"
             :src="commentData.user.avatarUrl.replace(/^http:/, 'https:') + '?param=50y50'"
@@ -27,11 +27,15 @@
       </div>
       <div class="review">
         <div class="content">
-          <n-text class="name">{{ commentData.user.nickname }}：</n-text>
+          <n-text class="name" @click="goToUser(commentData.user.userId)">
+            {{ commentData.user.nickname }}：
+          </n-text>
           <n-text class="text" v-html="commentData.content" />
         </div>
-        <div class="beReplied" v-if="commentData.beReplied[0]">
-          <n-text class="name"> @{{ commentData.beReplied[0].user.nickname }}： </n-text>
+        <div class="beReplied" v-if="commentData.beReplied?.[0]">
+          <n-text class="name" @click="goToUser(commentData.beReplied[0].user.userId)">
+            @{{ commentData.beReplied[0].user.nickname }}：
+          </n-text>
           <n-text class="text">{{ commentData.beReplied[0].content }}</n-text>
         </div>
         <div class="thing">
@@ -43,7 +47,15 @@
             <n-icon size="14" :depth="3" :component="Local" />
             <n-text :depth="3" v-html="commentData.ipLocation.location" />
           </div>
-          <div :class="commentData.liked ? 'like liked' : 'like'" @click="toLikeComment">
+          <div
+            :class="commentData.liked ? 'like liked' : 'like'"
+            role="button"
+            tabindex="0"
+            :aria-pressed="commentData.liked"
+            @click="toLikeComment"
+            @keydown.enter.prevent="toLikeComment"
+            @keydown.space.prevent="toLikeComment"
+          >
             <n-icon>
               <ThumbsUp :theme="commentData.liked ? 'filled' : 'outline'" />
             </n-icon>
@@ -71,24 +83,40 @@ const props = defineProps({
   // 评论 数据
   commentData: {
     type: Object,
-    default: {},
+    default: () => ({}),
+  },
+  // 评论所属资源；播放器内嵌评论不依赖当前路由参数
+  resourceId: {
+    type: [Number, String],
+    default: null,
+  },
+  // 嵌入虚拟列表时关闭逐条淡入，避免大量评论同时触发过渡。
+  animated: {
+    type: Boolean,
+    default: true,
   },
 });
+
+// 前往用户主页
+const goToUser = (userId) => {
+  if (!userId) return;
+  router.push({ path: "/profile", query: { id: userId } });
+};
 
 // 点赞评论
 const toLikeComment = () => {
   if (user.userLogin) {
+    const resourceId = Number(props.resourceId ?? router.currentRoute.value.query.id);
+    if (!Number.isFinite(resourceId)) return;
     const type = props.commentData.liked ? 0 : 1;
-    likeComment(router.currentRoute.value.query.id, props.commentData.commentId, type).then(
-      (res) => {
-        if (res.code === 200) {
-          props.commentData.liked = !props.commentData.liked;
-          props.commentData.likedCount += type ? 1 : -1;
-        } else {
-          $message.error(t("general.message.operationFailed"));
-        }
-      },
-    );
+    likeComment(resourceId, props.commentData.commentId, type).then((res) => {
+      if (res.code === 200) {
+        props.commentData.liked = !props.commentData.liked;
+        props.commentData.likedCount += type ? 1 : -1;
+      } else {
+        $message.error(t("general.message.operationFailed"));
+      }
+    });
   } else {
     $message.error(t("general.message.needLogin"));
   }
@@ -124,6 +152,11 @@ const toLikeComment = () => {
         height: 54px;
         border-radius: 50%;
         box-shadow: 0 6px 8px -2px rgb(0 0 0 / 16%);
+        cursor: pointer;
+        transition: transform var(--duration-150) var(--ease-out);
+        &:active {
+          transform: scale(0.94);
+        }
         .avatarImg {
           border-radius: 50%;
           width: 100%;
