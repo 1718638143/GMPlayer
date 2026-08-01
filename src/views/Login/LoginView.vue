@@ -138,8 +138,11 @@ const captchaDisabled = ref(false);
 
 const allowCaptchaInput = (char: string) => /^\d$/.test(char);
 
-// 定时器
-let qrCheckInterval = null;
+// 二维码轮询会话
+let qrCheckInterval: ReturnType<typeof setInterval> | null = null;
+let qrSessionId = 0;
+let qrCheckInFlight = false;
+let qrTabActive = false;
 
 // 登陆状态弹窗
 const loginStateMessage = ref(null);
@@ -147,51 +150,94 @@ const loginStateMessage = ref(null);
 // 是否已卸载
 let isUnmounted = false;
 
+const clearLoginStateMessage = () => {
+  loginStateMessage.value?.destroy?.();
+  loginStateMessage.value = null;
+};
+
+const clearQrPollingTimer = () => {
+  if (qrCheckInterval !== null) {
+    clearInterval(qrCheckInterval);
+    qrCheckInterval = null;
+  }
+  qrCheckInFlight = false;
+};
+
+// 使旧的二维码请求和轮询响应失效，避免 keep-alive 页面留下孤儿定时器
+const stopQrPolling = () => {
+  qrSessionId += 1;
+  clearQrPollingTimer();
+  clearLoginStateMessage();
+};
+
+const isQrSessionActive = (sessionId: number) =>
+  !isUnmounted && qrTabActive && sessionId === qrSessionId;
+
+const startQrPollingSession = () => {
+  if (isUnmounted || !qrTabActive) return;
+  stopQrPolling();
+  void getQrKeyData(qrSessionId);
+};
+
+const activateLoginPage = () => {
+  if (isUnmounted || qrTabActive) return;
+  qrTabActive = true;
+  music.setPlayBarState(false);
+  startQrPollingSession();
+};
+
 // 储存登录信息
-const saveLoginData = async (data) => {
+const saveLoginData = async (data, sessionId?: number) => {
   data.cookie = data.cookie.replaceAll(" HTTPOnly", "");
   user.setCookie(data.cookie);
   // 验证用户登录信息
   try {
     const res = await getLoginState();
-    if (isUnmounted) return;
+    if (isUnmounted || (sessionId !== undefined && !isQrSessionActive(sessionId))) return;
     if (res.data.profile) {
+      stopQrPolling();
       user.setUserData(res.data.profile);
       user.userLogin = true;
       loginStatus.value = t("login.loginStatus4");
       $message.success(t("login.loginStatus4"));
       // 自动签到
       if ($signIn) $signIn();
-      clearInterval(qrCheckInterval);
       router.push("/user");
     } else {
       user.userLogOut();
       $message.error(t("login.loginStatus5"));
-      getQrKeyData();
+      if (sessionId !== undefined) startQrPollingSession();
     }
   } catch (err) {
     console.error(err);
+    if (sessionId !== undefined && isQrSessionActive(sessionId)) {
+      startQrPollingSession();
+    } else if (!isUnmounted) {
+      $message.error(t("login.loginStatus5"));
+    }
   }
 };
 
 // 获取二维码登录 key
-const getQrKeyData = async () => {
+const getQrKeyData = async (sessionId = qrSessionId) => {
+  if (!isQrSessionActive(sessionId)) return;
   try {
     // 检测是否登录
     const stateRes = await getLoginState();
-    if (isUnmounted) return;
+    if (!isQrSessionActive(sessionId)) return;
     if (stateRes.data.profile && window.localStorage.getItem("cookie")) {
+      stopQrPolling();
       $message.info(t("login.loggedIn"));
       user.userLogin = true;
       router.push("/user");
     } else {
       user.userLogOut();
-      clearInterval(qrCheckInterval);
+      clearQrPollingTimer();
       const qrRes = await getQrKey();
-      if (isUnmounted) return;
+      if (!isQrSessionActive(sessionId)) return;
       if (qrRes.code === 200) {
         qrImg.value = `https://music.163.com/login?codekey=${qrRes.data.unikey}`;
-        checkQrState(qrRes.data.unikey);
+        checkQrState(qrRes.data.unikey, sessionId);
       } else {
         $message.error(t("login.loginStatus6"));
       }
@@ -202,30 +248,41 @@ const getQrKeyData = async () => {
 };
 
 // 检测二维码登陆状态
-const checkQrState = (key) => {
+const checkQrState = (key, sessionId: number) => {
+  if (!isQrSessionActive(sessionId)) return;
+  clearQrPollingTimer();
   qrCheckInterval = setInterval(() => {
-    if (!key || isUnmounted) return false;
-    checkQr(key).then((res) => {
-      if (isUnmounted) return;
-      if (res.code === 800) {
-        getQrKeyData();
-        loginStateMessage.value = null;
-        loginStatus.value = t("login.loginStatus2");
-      } else if (res.code === 801) {
-        loginStateMessage.value = null;
-        loginStatus.value = t("login.loginStatus1");
-      } else if (res.code === 802) {
-        loginStatus.value = t("login.loginStatus3");
-        if (!loginStateMessage.value) {
-          loginStateMessage.value = $message.loading(t("login.loginStatus3"), {
-            duration: 0,
-          });
+    if (!key || !isQrSessionActive(sessionId) || qrCheckInFlight) return;
+    qrCheckInFlight = true;
+    checkQr(key)
+      .then((res) => {
+        if (!isQrSessionActive(sessionId)) return;
+        if (res.code === 800) {
+          stopQrPolling();
+          loginStatus.value = t("login.loginStatus2");
+          startQrPollingSession();
+        } else if (res.code === 801) {
+          clearLoginStateMessage();
+          loginStatus.value = t("login.loginStatus1");
+        } else if (res.code === 802) {
+          loginStatus.value = t("login.loginStatus3");
+          if (!loginStateMessage.value) {
+            loginStateMessage.value = $message.loading(t("login.loginStatus3"), {
+              duration: 0,
+            });
+          }
+        } else if (res.code === 803) {
+          clearQrPollingTimer();
+          clearLoginStateMessage();
+          saveLoginData(res, sessionId);
         }
-      } else if (res.code === 803) {
-        loginStateMessage.value.destroy();
-        saveLoginData(res);
-      }
-    });
+      })
+      .catch((err) => {
+        if (isQrSessionActive(sessionId)) console.error(err);
+      })
+      .finally(() => {
+        if (sessionId === qrSessionId) qrCheckInFlight = false;
+      });
   }, 1000);
 };
 
@@ -233,15 +290,17 @@ const checkQrState = (key) => {
 const getCaptcha = (data) => {
   clearInterval(captchaTimeOut);
   phoneFormRef.value?.validate(
-    (errors) => {
+    async (errors) => {
       if (errors) {
         $message.error(t("general.message.needCheck"));
       } else {
-        sentCaptcha(data).then((res) => {
+        captchaDisabled.value = true;
+        try {
+          const res = await sentCaptcha(data);
+          if (isUnmounted) return;
           if (res.code === 200) {
             $message.success(t("login.codeSuccess"));
             let countDown = 60;
-            captchaDisabled.value = true;
             captchaTimeOut = setInterval(() => {
               countDown--;
               captchaText.value = countDown + "s";
@@ -252,9 +311,16 @@ const getCaptcha = (data) => {
               }
             }, 1000);
           } else {
+            captchaDisabled.value = false;
             $message.error(t("login.codeError"));
           }
-        });
+        } catch (err) {
+          console.error(err);
+          if (isUnmounted) return;
+          captchaDisabled.value = false;
+          captchaText.value = t("login.getCodeAgain");
+          $message.error(t("login.codeError"));
+        }
       }
     },
     (rule) => {
@@ -276,13 +342,7 @@ const phoneLogin = async (e) => {
           const loginRes = await toLogin(phoneFormData.value.phone, captcha);
           if (isUnmounted) return;
           if (loginRes.profile) {
-            saveLoginData(loginRes);
-            user.setUserData(loginRes.profile);
-            user.userLogin = true;
-            $message.success(t("login.loginStatus4"));
-            // 自动签到
-            if ($signIn) $signIn();
-            router.push("/user");
+            await saveLoginData(loginRes);
           } else {
             user.userLogOut();
             $message.error(t("login.loginStatus5"));
@@ -304,40 +364,37 @@ const phoneLogin = async (e) => {
 // Tab 切换
 const tabChange = (val) => {
   if (val === "qr") {
-    getQrKeyData();
+    startQrPollingSession();
   } else {
-    clearInterval(qrCheckInterval);
+    stopQrPolling();
   }
 };
 
 onMounted(() => {
   $setSiteTitle(t("login.login"));
-  // 隐藏控制条
-  music.setPlayBarState(false);
-  // 获取二维码登录 key
-  getQrKeyData();
+  activateLoginPage();
 });
 
 onActivated(() => {
-  // keep-alive 复用时也需隐藏控制条
-  music.setPlayBarState(false);
-  // 重新获取二维码
-  getQrKeyData();
+  // keep-alive 复用时重新获取二维码；首次激活由 onMounted 的幂等保护接管
+  activateLoginPage();
 });
 
 onDeactivated(() => {
+  qrTabActive = false;
   // keep-alive 缓存时恢复控制条并清除定时器
   music.setPlayBarState(true);
-  clearInterval(qrCheckInterval);
+  stopQrPolling();
   clearInterval(captchaTimeOut);
 });
 
 onBeforeUnmount(() => {
   isUnmounted = true;
+  qrTabActive = false;
   // 恢复控制条
   music.setPlayBarState(true);
   // 清除定时器
-  clearInterval(qrCheckInterval);
+  stopQrPolling();
   clearInterval(captchaTimeOut);
 });
 </script>
