@@ -31,6 +31,7 @@
       <n-tab name="albums">{{ $t("general.name.album") }}</n-tab>
       <n-tab name="videos">{{ $t("general.name.videos") }}</n-tab>
       <n-tab name="playlists">{{ $t("general.name.playlist") }}</n-tab>
+      <n-tab name="users">{{ $t("general.name.users") }}</n-tab>
     </n-tabs>
 
     <!-- 结果内容 -->
@@ -60,6 +61,7 @@ const { transitionName, updateDirection, syncIndex } = useTabTransition([
   "albums",
   "videos",
   "playlists",
+  "users",
 ]);
 
 // 搜索关键词

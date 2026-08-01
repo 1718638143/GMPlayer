@@ -44,6 +44,11 @@ const routes: RouteRecordRaw[] = [
         name: "s-playlists",
         component: () => import("@/views/Search/playlists.vue"),
       },
+      {
+        path: "users",
+        name: "s-users",
+        component: () => import("@/views/Search/users.vue"),
+      },
     ],
   },
   // 发现页
@@ -110,6 +115,15 @@ const routes: RouteRecordRaw[] = [
         component: () => import("@/views/User/cloud.vue"),
       },
     ],
+  },
+  // 用户主页（公开，可查看任意用户）
+  {
+    path: "/profile",
+    name: "profile",
+    meta: {
+      title: "用户主页",
+    },
+    component: () => import("@/views/Profile/index.vue"),
   },
   // 评论页
   {
