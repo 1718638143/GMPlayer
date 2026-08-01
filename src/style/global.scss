@@ -73,7 +73,6 @@
   --transition-spring: 500ms var(--ease-out);
 
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
@@ -97,7 +96,6 @@ body,
 #app {
   font-family: "HarmonyOS_Regular", sans-serif !important;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 // Dialog

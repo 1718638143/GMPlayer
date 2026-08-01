@@ -32,12 +32,14 @@
                 </div>
               </template>
             </n-image>
-            <n-image
-              lazy
+            <img
               class="shadow"
-              preview-disabled
+              aria-hidden="true"
+              alt=""
+              loading="lazy"
+              decoding="async"
               :src="getCoverUrl(item.cover, 300)"
-              fallback-src="/images/pic/default.png"
+              @error="hideBrokenShadow"
             />
             <n-icon class="play" size="40">
               <PlayOne theme="filled" />
@@ -114,6 +116,12 @@ import { useRouter } from "vue-router";
 import AllArtists from "./AllArtists.vue";
 import PlaylistUpdate from "@/components/DataModal/PlaylistUpdate.vue";
 import getCoverUrl from "@/utils/ncm/getCoverUrl";
+
+// 悬停时的模糊光晕只是装饰层，用裸 <img> 而不是第二个 n-image：
+// 同一 URL 走浏览器缓存，省下的是每格多一份 n-image 组件实例与 DOM。
+const hideBrokenShadow = (e) => {
+  if (e.target instanceof HTMLElement) e.target.style.display = "none";
+};
 
 const { t } = useI18n();
 const router = useRouter();
@@ -475,7 +483,7 @@ onMounted(() => {
         filter: blur(20px) opacity(0.5);
         transform: scale(0.92, 0.96);
         z-index: 0;
-        background-size: cover;
+        object-fit: cover;
         aspect-ratio: 1/1;
         transition: opacity var(--duration-200) var(--ease-out);
       }

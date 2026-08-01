@@ -1,5 +1,6 @@
 import { fileURLToPath, URL } from "node:url";
 import { Readable } from "node:stream";
+import { createRequire } from "node:module";
 import { defineConfig, loadEnv, ViteDevServer } from "vite";
 import { NaiveUiResolver } from "unplugin-vue-components/resolvers";
 import { VitePWA } from "vite-plugin-pwa";
@@ -16,6 +17,16 @@ import OptimizationPersist from "vite-plugin-optimize-persist";
 import PkgConfig from "vite-plugin-package-config";
 
 const AUDIO_PROXY_PATH = "/api/audio-proxy";
+
+// 只取应用真正用到的四个字段。直接 import package.json 会把整份依赖版本表
+// 打进 main chunk（已验证产物中含完整 devDependencies 列表）。
+const pkg = createRequire(import.meta.url)("./package.json");
+const APP_INFO = {
+  version: pkg.version,
+  author: pkg.author,
+  home: pkg.home,
+  github: pkg.github,
+};
 
 function wasmBuildPlugins() {
   return [
@@ -199,8 +210,6 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       port: 25536,
       open: true,
-      http: true,
-      ssr: true,
       watch: {
         ignored: ["**/src-tauri/**"],
       },
@@ -232,6 +241,7 @@ export default defineConfig(({ mode }) => {
     ],
     define: {
       __GMPLAYER_TAURI_BUILD__: JSON.stringify(isTauri),
+      __APP_INFO__: JSON.stringify(APP_INFO),
     },
     resolve: {
       alias: {

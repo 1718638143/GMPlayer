@@ -80,6 +80,7 @@
 
 <script setup lang="ts">
 import { musicStore, userStore, settingStore, siteStore } from "@/store";
+import { suspendMusicPersist } from "@/store/musicPersistedData";
 import { useRouter, useRoute } from "vue-router";
 import { getLoginState, refreshLogin } from "@/api/login";
 import { userDailySignin, userYunbeiSign } from "@/api/user";
@@ -101,7 +102,7 @@ import TitleBar from "@/components/TitleBar/index.vue";
 import Sidebar from "@/components/Sidebar/index.vue";
 import MobileTabBar from "@/components/Sidebar/MobileTabBar.vue";
 import QueuePanel from "@/components/QueuePanel/index.vue";
-import packageJson from "@/../package.json";
+import { appInfo } from "@/utils/appInfo";
 import { INLINE_QUEUE_MEDIA_QUERY } from "@/utils/playlistLayout";
 import { ref, watch, computed, h } from "vue";
 
@@ -254,6 +255,7 @@ const cleanAll = () => {
   } else {
     alert(t("other.cleanAll"));
   }
+  suspendMusicPersist();
   localStorage.clear();
   document.location.reload();
 };
@@ -364,7 +366,7 @@ onMounted(() => {
 
   // 版权声明
   const logoText = import.meta.env.VITE_SITE_TITLE;
-  const copyrightNotice = `\n\n版本: ${packageJson.version}\n作者: ${packageJson.author}\n作者主页: ${packageJson.home}\nGitHub: ${packageJson.github}`;
+  const copyrightNotice = `\n\n版本: ${appInfo.version}\n作者: ${appInfo.author}\n作者主页: ${appInfo.home}\nGitHub: ${appInfo.github}`;
   console.info(
     `%c${logoText} %c ${copyrightNotice}`,
     "color:#f55e55;font-size:26px;font-weight:bold;",

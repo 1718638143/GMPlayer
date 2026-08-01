@@ -11,14 +11,14 @@
     <div class="copyright">
       <div class="desc">
         <n-text class="name">{{ siteTitle }}</n-text>
-        <n-text class="version" :depth="3"> v&nbsp;{{ packageJson.version }} </n-text>
+        <n-text class="version" :depth="3"> v&nbsp;{{ appInfo.version }} </n-text>
       </div>
       <n-blockquote>
         <n-text class="power">
           Copyright&nbsp;©&nbsp;2020 - {{ new Date().getFullYear() }}
-          <n-a :href="packageJson.home" target="_blank" v-html="packageJson.author" />
+          <n-a :href="appInfo.home" target="_blank">{{ appInfo.author }}</n-a>
         </n-text>
-        <n-text class="point" v-html="'·'" />
+        <n-text class="point">·</n-text>
         <n-a
           v-if="icp"
           class="beian"
@@ -27,7 +27,7 @@
           v-html="icp"
         />
       </n-blockquote>
-      <n-button class="github" secondary strong @click="jumpUrl(packageJson.github)">
+      <n-button class="github" secondary strong @click="jumpUrl(appInfo.github)">
         <template #icon>
           <n-icon :component="GithubOne" />
         </template>
@@ -39,7 +39,7 @@
 
 <script setup>
 import { GithubOne } from "@icon-park/vue-next";
-import packageJson from "@/../package.json";
+import { appInfo } from "@/utils/appInfo";
 
 // 关于本站数据
 const siteTitle = import.meta.env.VITE_SITE_TITLE;

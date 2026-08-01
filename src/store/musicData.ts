@@ -55,12 +55,14 @@ interface MusicDataState {
   dailySongsDate: string;
   catList: Record<string, any>;
   highqualityCatList: any[];
-  spectrumsData: number[];
-  spectrumsScaleData: number;
   lowFreqVolume: number;
   isLoadingSong: boolean;
   loadingStage: "idle" | "resolving" | "buffering" | "stalled" | "error";
   preloadedSongIds: Set<number>;
+  // persistData.likeList 的查询索引。数组本身仍是持久化的唯一真源，
+  // 这里只是派生索引：Array.includes 是 O(n)，而且会把整个数组登记为依赖，
+  // 导致收藏任意一首歌就让所有列表行重新渲染。
+  likeSet: Set<number>;
   autoMixState: AutoMixStateData;
   playSongTime: PlaySongTime;
   persistData: PersistData;
@@ -105,12 +107,11 @@ const useMusicDataStore = defineStore("musicData", {
       dailySongsDate: "",
       catList: {},
       highqualityCatList: [],
-      spectrumsData: [],
-      spectrumsScaleData: 1,
       lowFreqVolume: 0,
       isLoadingSong: false,
       loadingStage: "idle",
       preloadedSongIds: new Set(),
+      likeSet: new Set(persistedStore.persistData.likeList),
       autoMixState: {
         phase: "idle",
         outroType: null,
@@ -150,9 +151,6 @@ const useMusicDataStore = defineStore("musicData", {
     },
     getPlaylists(state): SongData[] {
       return state.persistData.playlists;
-    },
-    getSpectrumsData(state): number[] {
-      return state.spectrumsData;
     },
     getLowFreqVolume(state): number {
       return state.lowFreqVolume;
@@ -366,18 +364,19 @@ const useMusicDataStore = defineStore("musicData", {
       if (user.userLogin) {
         getLikelist(user.userData.id).then((res: any) => {
           this.persistData.likeList = res.ids;
+          this.likeSet = new Set(res.ids);
         });
       }
     },
 
     getSongIsLike(id: number): boolean {
-      return this.persistData.likeList.includes(id);
+      return this.likeSet.has(id);
     },
 
     async changeLikeList(id: number, like: boolean = true) {
       const user = userStore();
       const list = this.persistData.likeList;
-      const exists = list.includes(id);
+      const exists = this.likeSet.has(id);
       if (!user.userLogin) {
         $message.error(getLanguageData("needLogin"));
         return;
@@ -387,9 +386,11 @@ const useMusicDataStore = defineStore("musicData", {
         if (res.code === 200) {
           if (like && !exists) {
             list.push(id);
+            this.likeSet.add(id);
             $message.info(getLanguageData("loveSong"));
           } else if (!like && exists) {
             list.splice(list.indexOf(id), 1);
+            this.likeSet.delete(id);
             $message.info(getLanguageData("loveSongRemove"));
           } else if (like && exists) {
             $message.info(getLanguageData("loveSongRepeat"));

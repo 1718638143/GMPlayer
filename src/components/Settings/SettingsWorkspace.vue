@@ -212,6 +212,7 @@
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { settingStore } from "@/store";
+import { suspendMusicPersist } from "@/store/musicPersistedData";
 import themeColorData from "@/components/Provider/themeColor.json";
 import SettingsPanel from "./SettingsPanel.vue";
 import SettingsAppUpdate from "./SettingsAppUpdate.vue";
@@ -340,6 +341,7 @@ const changeThemeColor = (data: ThemeColorItem | null, reset = false) => {
 const resetApp = () => {
   const cleanAll = () => {
     $message?.success(t("other.cleanAll"));
+    suspendMusicPersist();
     localStorage.clear();
     window.location.href = "/";
   };

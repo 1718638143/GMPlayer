@@ -35,12 +35,16 @@ const canvasRef = ref(null);
 let cachedWidth = 0;
 let cachedHeight = 0;
 let displayPeak = 255;
+// getContext() is re-entrant but not free; the loop runs every frame, so keep
+// the 2D context alongside the size cache instead of re-fetching it per draw.
+let ctx = null;
 
 const updateCanvasSize = () => {
   const canvas = canvasRef.value;
   if (!canvas) return;
   const w = Math.min(1600, document.body.clientWidth);
   const h = props.height;
+  if (!ctx) ctx = canvas.getContext("2d");
   if (cachedWidth !== w || cachedHeight !== h) {
     cachedWidth = w;
     cachedHeight = h;
@@ -56,7 +60,8 @@ const updateCanvasSize = () => {
 const drawSpectrum = (data) => {
   const canvas = canvasRef.value;
   if (!canvas) return;
-  const ctx = canvas.getContext("2d");
+  if (!ctx) ctx = canvas.getContext("2d");
+  if (!ctx) return;
   if (!data || !data.length) {
     // Frame was cleared (pause/track change) — wipe the canvas once instead of
     // leaving stale bars behind.
@@ -213,6 +218,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearHideParkTimer();
   stopDraw();
+  ctx = null;
   if (resizeObserver) {
     resizeObserver.disconnect();
     resizeObserver = null;
