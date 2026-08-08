@@ -9,6 +9,7 @@ import {
   SubtitlesRound,
   AutoAwesomeRound,
   BuildRound,
+  InfoRound,
 } from "@vicons/material";
 import { settingStore, userStore } from "@/store";
 import { isTauri } from "@/utils/tauri";
@@ -512,6 +513,21 @@ export function useSettingsSections() {
           control: "button",
           buttonText: "general.name.restore",
           buttonType: "error",
+        },
+      ],
+    },
+    {
+      key: "about",
+      label: "setting.sectionAbout",
+      icon: InfoRound,
+      searchText: "setting.aboutTitle setting.aboutVersion setting.aboutSystem version about",
+      items: [
+        {
+          key: "aboutApp",
+          label: "setting.aboutTitle",
+          tip: "setting.aboutTip",
+          control: "custom",
+          slot: "aboutApp",
         },
       ],
     },
