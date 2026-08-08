@@ -11,7 +11,7 @@ export type RGB = [number, number, number];
 export type HSL = [number, number, number];
 
 type BrowserColorThief = {
-  getPalette(sourceImage: HTMLImageElement, colorCount?: number, quality?: number): RGB[] | null;
+  getPalette(sourceImage: ImageData, colorCount?: number, quality?: number): RGB[] | null;
 };
 
 type MaterialPalette = {
@@ -138,6 +138,67 @@ export const calcWhiteShadeColor = (rgb: RGB, amount = 0.5): RGB =>
 
 const normalizeCoverUrl = (coverSrc: string): string => coverSrc.replace(/^http:/, "https:");
 
+// Palette extraction only ever samples a 64x64 grid, so there is no reason to
+// pull the original artwork. NCM's CDN resizes server-side via `param`, which
+// turns a ~1400x1400 original (≈7.8 MB once decoded) into ≈256 KB. Restricted
+// to the NCM hosts: other CDNs may sign their URLs, and an extra query param
+// would break the signature.
+const PALETTE_SOURCE_SIZE = 256;
+const NCM_IMAGE_HOST_REGEX = /(^|\.)music\.12[67]\.net$/;
+
+const toPaletteSourceUrl = (url: string): string => {
+  if (!/^https?:/i.test(url)) return url;
+  try {
+    const parsed = new URL(url);
+    if (!NCM_IMAGE_HOST_REGEX.test(parsed.hostname)) return url;
+    parsed.searchParams.set("param", `${PALETTE_SOURCE_SIZE}y${PALETTE_SOURCE_SIZE}`);
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+};
+
+// Sampling grid for quantization. Kept at 64 so the scored source color matches
+// what this module produced before the full-size decode was removed.
+const SAMPLE_SIZE = 64;
+
+// One reusable scratch canvas for every extraction. Creating one per cover left
+// a full-size backing store per played track in the renderer's non-JS memory,
+// which the heap snapshot cannot see and Chromium reclaims only lazily.
+let sampleCanvas: HTMLCanvasElement | null = null;
+let sampleCtx: CanvasRenderingContext2D | null = null;
+
+const getSampleContext = (): CanvasRenderingContext2D | null => {
+  if (sampleCtx) return sampleCtx;
+  sampleCanvas ??= document.createElement("canvas");
+  sampleCanvas.width = SAMPLE_SIZE;
+  sampleCanvas.height = SAMPLE_SIZE;
+  sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+  return sampleCtx;
+};
+
+/**
+ * Downscale a cover into the shared scratch canvas and return a detached
+ * snapshot of its pixels.
+ *
+ * Returning ImageData (rather than the canvas) is what makes the shared canvas
+ * safe: concurrent extractions each get their own snapshot, and ColorThief
+ * accepts ImageData directly — so it never builds a natural-size canvas of its
+ * own, which was the single largest per-track allocation here.
+ */
+const sampleCoverImage = (image: HTMLImageElement): ImageData | null => {
+  const ctx = getSampleContext();
+  if (!ctx) return null;
+
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  if (!width || !height) return null;
+
+  ctx.clearRect(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+  ctx.drawImage(image, 0, 0, width, height, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+  return ctx.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+};
+
 const tripletFromArgb = (argb: number): string => formatRgbTriplet(argb2Rgb(argb));
 
 const argbFromTriplet = ([r, g, b]: RGB): number => rgb2Argb(r, g, b);
@@ -149,20 +210,11 @@ const loadImage = (coverSrc: string): Promise<HTMLImageElement> =>
     image.decoding = "async";
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error(`Failed to load cover image: ${coverSrc}`));
-    image.src = coverSrc;
+    image.src = toPaletteSourceUrl(coverSrc);
   });
 
-const getImagePixels = (image: HTMLImageElement): number[] => {
-  const size = 64;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return [];
-
-  ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight, 0, 0, size, size);
-  const data = ctx.getImageData(0, 0, size, size).data;
+const getImagePixels = (sample: ImageData): number[] => {
+  const data = sample.data;
   const pixels: number[] = [];
 
   for (let i = 0; i < data.length; i += 4) {
@@ -192,8 +244,8 @@ const liftLowChromaSource = (argb: number): number => {
   return Hct.from(hue, 34, clamp(hct.tone, 42, 58)).toInt();
 };
 
-const getScoredSourceColor = (image: HTMLImageElement, fallbackPalette: RGB[]): number => {
-  const pixels = getImagePixels(image);
+const getScoredSourceColor = (sample: ImageData, fallbackPalette: RGB[]): number => {
+  const pixels = getImagePixels(sample);
   if (!pixels.length) return argbFromTriplet(fallbackPalette[0] ?? DEFAULT_SOURCE_RGB);
 
   const quantizedColors = QuantizerCelebi.quantize(pixels, 128);
@@ -314,10 +366,26 @@ const createCoverPalette = (sourceArgb: number): CoverPalette => {
 const getFallbackPalette = (): CoverPalette => createCoverPalette(argbFromTriplet(DEFAULT_RGB));
 
 const extractCoverPalette = async (image: HTMLImageElement): Promise<CoverPalette> => {
+  const sample = sampleCoverImage(image);
+
+  // The sample is a detached snapshot, so the element has served its purpose.
+  // Dropping src/handlers here releases the element's hold on the decoded frame
+  // immediately instead of waiting for a GC that — seeing only a few hundred
+  // bytes of JS — has no reason to feel urgency about the bitmap behind it.
+  image.onload = null;
+  image.onerror = null;
+  image.src = "";
+
+  if (!sample) return getFallbackPalette();
+
   const ColorThiefCtor = ColorThief as unknown as { new (): BrowserColorThief };
   const colorThief = new ColorThiefCtor();
-  const fallbackPalette = (await colorThief.getPalette(image, 12, 6)) ?? [];
-  const sourceArgb = getScoredSourceColor(image, fallbackPalette);
+  // Feed the downscaled snapshot, not the image element: ColorThief's
+  // HTMLImageElement path allocates a canvas at natural size and reads the
+  // whole thing back. Its result only seeds edge-case fallbacks below, so it
+  // never justified a full-resolution pass.
+  const fallbackPalette = colorThief.getPalette(sample, 12, 6) ?? [];
+  const sourceArgb = getScoredSourceColor(sample, fallbackPalette);
   return createCoverPalette(sourceArgb);
 };
 
