@@ -1012,6 +1012,17 @@ watch(
   },
 );
 
+// Queue emptied: no track is live any more, so let the lyric cache drop the
+// processed-line graph it keeps warm for the playing song. Deliberately keyed
+// on the queue going empty rather than on resetSongLyricState(), which also
+// fires on every ordinary track switch (where the graph is about to be needed).
+watch(
+  () => music.getPlaySongData?.id ?? null,
+  (id) => {
+    if (id === null) lyricFetcher.releaseDerived();
+  },
+);
+
 // Tauri: broadcast settings when lyric-related settings change
 watch(
   () => [
@@ -1056,7 +1067,6 @@ const fetchAndParseLyric = async (id) => {
   } catch (err) {
     console.error(`[Player] Failed to fetch lyric for ${id}:`, err);
     const defaultResult = parseLyric(null);
-    defaultResult.formattedLrc = "";
     music.setPlaySongLyric(defaultResult);
     nextTick(() => broadcastPlayerLyrics(true));
   }

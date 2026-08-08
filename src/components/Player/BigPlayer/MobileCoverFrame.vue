@@ -28,7 +28,28 @@
 </template>
 
 <script lang="ts">
+/**
+ * Artwork URLs already decoded once, so a revisit can skip the shimmer.
+ *
+ * Bounded on purpose: this is a cosmetic memo shared by every instance for the
+ * lifetime of the page, so an unbounded Set would retain one URL string per
+ * distinct cover for the whole session. Losing an old entry only costs one
+ * extra shimmer.
+ */
+const LOADED_COVER_URL_MAX = 64;
 const loadedCoverUrls = new Set<string>();
+
+function markCoverLoaded(url: string): void {
+  if (!url) return;
+  // delete + re-add moves the key to the end, making iteration order = LRU order
+  loadedCoverUrls.delete(url);
+  loadedCoverUrls.add(url);
+  while (loadedCoverUrls.size > LOADED_COVER_URL_MAX) {
+    const oldest = loadedCoverUrls.values().next().value;
+    if (oldest === undefined) break;
+    loadedCoverUrls.delete(oldest);
+  }
+}
 </script>
 
 <script setup lang="ts">
@@ -80,13 +101,13 @@ watch([() => props.coverUrl, loadAnimationEnabled], ([newUrl]) => {
 });
 
 function onImgLoad(): void {
-  loadedCoverUrls.add(props.coverUrl);
+  markCoverLoaded(props.coverUrl);
   imgLoaded.value = true;
 }
 
 /** Treat a broken image the same as a successful load — hide the shimmer. */
 function onImgError(): void {
-  loadedCoverUrls.add(props.coverUrl);
+  markCoverLoaded(props.coverUrl);
   imgLoaded.value = true;
 }
 </script>

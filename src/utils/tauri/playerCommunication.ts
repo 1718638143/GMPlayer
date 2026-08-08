@@ -296,19 +296,13 @@ function buildPlayerLyricPayload(force = false): PlayerLyricPayload | null {
 
   let amllLines: AMLLLine[] = [];
   try {
-    if (
-      songLyric.processedLyrics &&
-      songLyric.processedLyrics.length > 0 &&
-      songLyric.settingsHash === settingsKey
-    ) {
-      amllLines = songLyric.processedLyrics as unknown as AMLLLine[];
-    } else {
-      amllLines = getProcessedLyrics(songLyric, {
-        showYrc: setting.showYrc,
-        showRoma: setting.showRoma,
-        showTransl: setting.showTransl,
-      });
-    }
+    // getProcessedLyrics owns the processedLyrics cache and validates it against
+    // its own hash, so there is no useful shortcut to take here.
+    amllLines = getProcessedLyrics(songLyric, {
+      showYrc: setting.showYrc,
+      showRoma: setting.showRoma,
+      showTransl: setting.showTransl,
+    });
   } catch (err) {
     console.error("[PlayerCommunication] Failed to process lyrics for broadcast:", err);
   }
@@ -415,7 +409,14 @@ export function broadcastPlayerLyrics(force = false) {
   // is healed by the full-state push, so skip the (expensive) payload build
   // and the per-window IPC serialization entirely when none is visible.
   const labels = openContentBroadcastLabels();
-  if (labels.length === 0) return;
+  if (labels.length === 0) {
+    // Nothing will rebuild the payload while every content window is closed, so
+    // holding it would pin the last broadcast track's processed lines (a full
+    // word-level graph) for the rest of the session. Drop it; reopening a window
+    // triggers a forced rebuild anyway.
+    clearLyricBroadcastCache();
+    return;
+  }
   const payload = buildPlayerLyricPayload(force);
   if (!payload) return;
   emitToLabels(PLAYER_COMMUNICATION_EVENTS.lyric, payload, labels);

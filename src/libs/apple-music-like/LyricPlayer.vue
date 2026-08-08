@@ -314,13 +314,15 @@ watch(
       console.error("[LyricPlayer] 预处理歌词失败", error);
     }
 
-    const lines = structuredClone(
-      getProcessedLyrics(rawSongLyric, {
-        showYrc: setting.showYrc,
-        showRoma: setting.showRoma,
-        showTransl: setting.showTransl,
-      }),
-    );
+    // No defensive copy: AMLL's setLyricLines() structuredClones the input into
+    // its own currentLyricLines/processedLines before touching it, so the array
+    // we hand over (and the processedLyrics cache it points into) is never
+    // mutated from there.
+    const lines = getProcessedLyrics(rawSongLyric, {
+      showYrc: setting.showYrc,
+      showRoma: setting.showRoma,
+      showTransl: setting.showTransl,
+    });
     amllLyricLines.value = lines;
     applyLyricLines(lines);
   },

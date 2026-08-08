@@ -24,7 +24,6 @@ function createEmptySongLyric(): SongLyric {
     hasYrc: false,
     hasYrcTran: false,
     hasYrcRoma: false,
-    formattedLrc: "",
     processedLyrics: [],
     settingsHash: "",
   } as SongLyric;
@@ -37,7 +36,6 @@ function createInitialSongLyric(): SongLyric {
     hasLrcRoma: true,
     hasYrcTran: true,
     hasYrcRoma: true,
-    settingsHash: "true-false-false",
   };
 }
 
@@ -78,7 +76,14 @@ export const useMusicLyricStore = defineStore("musicLyric", () => {
         }
       }
 
-      if (!value.lrcAMData || value.lrcAMData.length === 0) {
+      if (value.hasTTML === undefined) value.hasTTML = false;
+      if (value.ttml === undefined) value.ttml = [];
+
+      // TTML tracks resolve through processLyrics()'s canonical-TTML branch, so
+      // synthesising lrcAMData for them would allocate an array nothing reads.
+      const ttmlCanonical = value.hasTTML && value.ttml.length > 0;
+
+      if (!ttmlCanonical && (!value.lrcAMData || value.lrcAMData.length === 0)) {
         if (value.yrcAMData && value.yrcAMData.length > 0) {
           console.log("使用yrcAMData作为lrcAMData的备用");
           value.lrcAMData = [...value.yrcAMData];
@@ -101,9 +106,6 @@ export const useMusicLyricStore = defineStore("musicLyric", () => {
           }));
         }
       }
-
-      if (value.hasTTML === undefined) value.hasTTML = false;
-      if (value.ttml === undefined) value.ttml = [];
 
       console.time("预处理歌词");
       const settings = useSettingDataStore();
