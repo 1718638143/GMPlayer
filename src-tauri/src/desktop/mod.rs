@@ -47,6 +47,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_decorum::init())
         .plugin(gmplayer_now_playing_controls::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

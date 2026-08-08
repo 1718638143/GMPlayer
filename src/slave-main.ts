@@ -12,6 +12,7 @@ import { createI18n } from "vue-i18n";
 import piniaPluginPersistedstate from "pinia-plugin-persistedstate";
 
 import SlaveApp from "@/SlaveApp.vue";
+import { installExternalLinkInterceptor } from "@/utils/openLink";
 import "@/style/global.scss";
 import "@/style/animate.scss";
 
@@ -91,4 +92,8 @@ const app = createApp(SlaveApp);
 app.use(pinia);
 app.use(i18n);
 app.use(router);
+
+// 外链统一出口：Tauri 交给系统浏览器，Web 走新标签页
+installExternalLinkInterceptor();
+
 app.mount("#app");

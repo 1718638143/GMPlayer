@@ -30,6 +30,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_opener::init())
         // Register the Android MediaNotification / MediaPlaybackService bridge.
         // On non-Android targets this is compiled as a no-op plugin so the same
         // binary can be built for iOS and simulator targets without any changes.

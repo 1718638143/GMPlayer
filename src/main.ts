@@ -7,6 +7,7 @@ import piniaPluginPersistedstate from "pinia-plugin-persistedstate";
 import App from "@/App.vue";
 import router from "@/router/index";
 import { audioPreheat, isTauri } from "@/utils/tauri/audioBridge";
+import { installExternalLinkInterceptor } from "@/utils/openLink";
 
 // 全局样式
 import "@/style/global.scss";
@@ -21,6 +22,9 @@ const app = createApp(App).use(pinia).use(router);
 useI18n(app);
 
 useSafeAreaVars();
+
+// 外链统一出口：Tauri 交给系统浏览器，Web 走新标签页
+installExternalLinkInterceptor();
 
 app.mount("#app");
 

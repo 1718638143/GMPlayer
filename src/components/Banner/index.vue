@@ -80,6 +80,7 @@ import { useRouter } from "vue-router";
 import { getBanner } from "@/api/home";
 import { useI18n } from "vue-i18n";
 import { Left, Right } from "@icon-park/vue-next";
+import { openExternalUrl } from "@/utils/openLink";
 
 const { t } = useI18n();
 const router = useRouter();
@@ -136,7 +137,7 @@ const bannerJump = (type, id, url) => {
     case 3000:
       // 站外链接
       const time = setTimeout(() => {
-        window.open(url);
+        void openExternalUrl(url);
       }, 2000);
       $message.loading(t("general.message.jumpOut"), {
         closable: true,
