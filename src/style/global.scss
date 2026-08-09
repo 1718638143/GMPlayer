@@ -66,6 +66,21 @@
   --app-titlebar-safe-top: calc(var(--app-floating-control-top) + var(--app-titlebar-height));
   --z-search-overlay: 2200;
 
+  /* 底部 chrome 几何 — 单一事实来源。移动端 MiniPlayer / TabBar / 底栏玻璃 /
+     滚动容器内边距 / BackTop 全部由此派生，避免各处重复硬编码 56 与 70 后彼此漂移。
+     --app-tab-bar-height 已经含 safe-area-bottom，消费方不要再加一次。 */
+  --app-player-bar-height: 70px;
+  --app-tab-bar-height: 0px;
+  --app-bottom-chrome: 0px;
+  --app-bottom-chrome-with-player: var(--app-player-bar-height);
+
+  /* BackTop 的落点。它 teleport 到 <body>，只能读 :root。
+     注意变量名不能含数字：Naive 的 formatLength 对字符串会跑 /(\d|\.)+/ 替换，
+     名字里出现数字会被就地改写成别的值。 */
+  --app-back-top-right: 40px;
+  --app-back-top-bottom: calc(var(--app-bottom-chrome) + 40px);
+  --app-back-top-bottom-with-player: calc(var(--app-bottom-chrome-with-player) + 40px);
+
   /* Precomposed shortcuts */
   --transition-fast: 150ms var(--ease-out);
   --transition-normal: 250ms var(--ease-out);
@@ -76,6 +91,17 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+/* 移动端外壳始终带底部 TabBar，且要在其内部预留 home indicator / 手势条的高度。
+   BackTop 会 teleport 到 <body>，取不到 .app-layout 上的 --layout-content-bottom，
+   所以这几个量必须挂在 :root 上它才读得到。 */
+@media (max-width: 768px) {
+  :root {
+    --app-tab-bar-height: calc(56px + var(--app-safe-area-bottom, 0px));
+    --app-bottom-chrome: var(--app-tab-bar-height);
+    --app-bottom-chrome-with-player: calc(var(--app-player-bar-height) + var(--app-tab-bar-height));
+  }
 }
 
 /* 深色模式语义 token — 边框/蒙层换白色基调，阴影加深保证层级仍可读 */

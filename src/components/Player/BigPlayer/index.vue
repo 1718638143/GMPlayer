@@ -686,11 +686,7 @@ const clearMiniUiVars = () => {
   removeMiniUiVar("--mobile-mini-player-root-y");
   removeMiniUiVar("--mobile-mini-player-z-index");
   removeMiniUiVar("--mobile-mini-player-pointer-events");
-  removeMiniUiVar("--mobile-mini-player-surface-bg");
   removeMiniUiVar("--mobile-mini-player-surface-opacity");
-  removeMiniUiVar("--mobile-mini-player-mask-y");
-  removeMiniUiVar("--mobile-mini-player-surface-border");
-  removeMiniUiVar("--mobile-mini-player-surface-shadow");
   removeMiniUiVar("--mobile-mini-player-ui-opacity");
   removeMiniUiVar("--mobile-mini-player-chrome-opacity");
   removeMiniUiVar("--mobile-mini-player-text-opacity");
@@ -718,24 +714,17 @@ const applyMiniUiVars = (progress: number) => {
     MOBILE_MINI_SURFACE_FADE_END,
   );
   const miniArtworkOpacity = miniTransitioning ? 0 : 1;
+  // Drives .bottom-glass in App.vue — the shared glass behind the mini bar and the tab
+  // bar. It has to dissolve as BigPlayer takes over, or the band's blur outlives the
+  // bars it belongs to and smears the expanding artwork.
   const miniSurfaceOpacity = miniTransitioning ? 1 - easeOutCubic(miniSurfaceExit) : 1;
-  const miniMaskY = miniTransitioning ? getMiniBarY(progress) : 0;
   setMiniUiVar("--mobile-mini-player-root-y", `${getMiniBarY(progress)}px`);
   setMiniUiVar(
     "--mobile-mini-player-z-index",
     miniTransitioning && progress < MOBILE_MINI_UI_FADE_END ? "2102" : "2",
   );
   setMiniUiVar("--mobile-mini-player-pointer-events", miniTransitioning ? "none" : "auto");
-  if (miniTransitioning) {
-    setMiniUiVar("--mobile-mini-player-surface-border", "transparent");
-    setMiniUiVar("--mobile-mini-player-surface-shadow", "none");
-  } else {
-    removeMiniUiVar("--mobile-mini-player-surface-bg");
-    removeMiniUiVar("--mobile-mini-player-surface-border");
-    removeMiniUiVar("--mobile-mini-player-surface-shadow");
-  }
   setMiniUiVar("--mobile-mini-player-surface-opacity", String(miniSurfaceOpacity));
-  setMiniUiVar("--mobile-mini-player-mask-y", `${miniMaskY}px`);
   setMiniUiVar("--mobile-mini-player-ui-opacity", String(1 - miniChromeExit));
   setMiniUiVar("--mobile-mini-player-chrome-opacity", String(1 - miniChromeExit));
   setMiniUiVar("--mobile-mini-player-text-opacity", String(1 - miniTextExit));

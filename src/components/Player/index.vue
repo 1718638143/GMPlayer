@@ -1148,7 +1148,7 @@ watch(
   --player-control-edge-inset: 14px;
   --player-slider-edge-inset: 0px;
 
-  height: 70px;
+  height: var(--app-player-bar-height);
   position: fixed;
   bottom: 0;
   left: var(--sidebar-width, 240px);
@@ -1165,14 +1165,15 @@ watch(
     --player-surface-bg,
     var(--app-shell-bg, var(--layout-bg, #fff))
   ) !important;
-  border-top: 1px solid var(--mobile-mini-player-surface-border, var(--player-surface-border));
-  box-shadow: var(--mobile-mini-player-surface-shadow, none);
+  border-top: 1px solid var(--player-surface-border);
 
   // Mobile: player sits above tab bar, no sidebar
   @media (max-width: 768px) {
-    // Sit above the 56px tab bar; add safe-area-bottom so the home indicator /
-    // gesture bar on notched Android/iOS screens doesn't overlap the mini player.
-    bottom: calc(56px + var(--app-safe-area-bottom, 0px));
+    // Sit on top of the tab bar. --app-tab-bar-height already includes
+    // --app-safe-area-bottom (the tab bar reserves the home indicator strip inside its
+    // own box), so adding the inset again here would offset the mini player by a second
+    // copy of it.
+    bottom: var(--app-tab-bar-height);
     left: 0;
     width: 100%;
     --n-border-color: transparent !important;
@@ -1184,29 +1185,14 @@ watch(
     --player-data-edge-inset: 12px;
     --player-control-edge-inset: 12px;
     --player-slider-edge-inset: 0px;
+    // The mini bar and the tab bar share one glass surface (.bottom-glass in App.vue),
+    // so neither paints its own fill here — that shared layer is what removes the color
+    // step and the divider line that used to sit between them.
     background-color: transparent !important;
     border: none !important;
-    border-top: 1px solid var(--mobile-mini-player-surface-border, var(--player-surface-border)) !important;
     outline: none !important;
     box-shadow: none;
     overflow: visible !important;
-
-    &::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      z-index: -1;
-      // 素色底，与 sidebar / 队列 / 桌面播放栏一致；去掉亚克力与封面取色叠加，求和谐统一
-      background-color: var(
-        --mobile-mini-player-surface-bg,
-        var(--app-shell-bg, var(--layout-bg, #fff))
-      );
-      box-shadow: var(--mobile-mini-player-surface-shadow, 0 -10px 28px rgb(0 0 0 / 10%));
-      opacity: var(--mobile-mini-player-surface-opacity, 1);
-      transform: translate3d(0, var(--mobile-mini-player-mask-y, 0px), 0);
-      pointer-events: none;
-      will-change: opacity, transform;
-    }
   }
 
   .slider {

@@ -226,6 +226,40 @@ nav {
     min-height: calc(42px + var(--app-safe-area-top, 0px));
     padding-top: var(--app-safe-area-top, 0px);
     box-sizing: border-box;
+    // The mobile header band behind these controls is itself blurred and tinted
+    // (see .content-top-shadow in App.vue). Lift the pill fill and border so the
+    // buttons still read as a layer above that band, and tighten the shadow —
+    // a wide soft drop shadow over blur just muddies into a gray halo.
+    --floating-control-bg: rgba(255, 255, 255, 0.62);
+    --acrylic-border: rgba(0, 0, 0, 0.07);
+    --nav-pill-specular: rgba(255, 255, 255, 0.7);
+    --nav-pill-grade: saturate(180%) brightness(106%) contrast(96%);
+
+    &.dark {
+      --floating-control-bg: rgba(32, 32, 38, 0.6);
+      --acrylic-border: rgba(255, 255, 255, 0.11);
+      --nav-pill-specular: rgba(255, 255, 255, 0.16);
+      // Single pass here (no sibling stack), so these are the final values, not
+      // roots. Contrast under 100% for the same reason as the band's dark grade:
+      // compress the backdrop's range rather than widening it.
+      --nav-pill-grade: saturate(170%) brightness(82%) contrast(88%);
+    }
+
+    // These pills ARE inset glass, so unlike the band they get a specular leading
+    // edge and their own grade. The tight contact shadow replaces the wide soft one
+    // from desktop: over a blurred backdrop a large-radius shadow has nothing crisp
+    // to read against and just smears into a gray halo.
+    // Selectors mirror the base rules' depth (`.left .controls`, `.right
+    // .action-icon`) so these win on source order rather than losing on specificity.
+    .left .controls,
+    .right .action-icon {
+      box-shadow:
+        0 1px 1px rgb(0 0 0 / 5%),
+        0 3px 8px rgb(0 0 0 / 7%),
+        inset 0 1px 0 var(--nav-pill-specular);
+      -webkit-backdrop-filter: blur(12px) var(--nav-pill-grade);
+      backdrop-filter: blur(12px) var(--nav-pill-grade);
+    }
 
     .left {
       flex: 0 0 auto;

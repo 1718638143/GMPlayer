@@ -49,24 +49,24 @@ const isActive = (tab) => {
   bottom: 0;
   left: 0;
   right: 0;
-  // --app-safe-area-bottom is env(safe-area-inset-bottom) on Tauri mobile,
-  // 0px everywhere else — so this is a no-op on desktop / browser.
-  height: calc(56px + var(--app-safe-area-bottom, 0px));
+  // --app-tab-bar-height is the 56px tab row PLUS --app-safe-area-bottom (the latter is
+  // 0px off Tauri mobile). border-box is load-bearing here: this project has no universal
+  // box-sizing reset, so under the default content-box the padding below was ADDED to the
+  // height and the bar rendered one whole safe-area inset taller than every other
+  // bottom-chrome consumer assumed — which is what offset the mini player sitting on it.
+  box-sizing: border-box;
+  height: var(--app-tab-bar-height);
   padding-bottom: var(--app-safe-area-bottom, 0px);
-  background-color: #fff;
-  border-top: 1px solid #e8e8e8;
+  // No fill and no top divider: this bar and the mini player above it share one glass
+  // surface (.bottom-glass in App.vue). Painting a background here would put a second
+  // material on top of it and bring back the color step between the two bars.
+  background-color: transparent;
   z-index: var(--mobile-mini-player-bottom-z-index, 1000);
   justify-content: space-around;
   align-items: center;
   pointer-events: var(--mobile-mini-player-bottom-pointer-events, auto);
   transform: translate3d(0, var(--mobile-mini-player-bottom-y, 0%), 0);
-  transition: background-color var(--duration-300) var(--ease-out);
   will-change: transform;
-
-  &.dark {
-    background-color: #18181c;
-    border-top-color: #2a2a30;
-  }
 
   @media (max-width: 768px) {
     display: flex;
@@ -82,11 +82,14 @@ const isActive = (tab) => {
   flex: 1;
   height: 100%;
   cursor: pointer;
-  color: #999;
+  // Inactive labels are 10px, so they need the 4.5:1 floor against the glass rather than
+  // the ~2.8:1 that #999 gave. The compressed backdrop sits lighter than the flat #fff
+  // this used to sit on, which costs contrast instead of granting it.
+  color: #6b6b73;
   transition: color var(--duration-300) var(--ease-out);
 
   .dark & {
-    color: #777;
+    color: #adadb5;
   }
 
   &.active {

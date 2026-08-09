@@ -26,9 +26,23 @@
           <Nav :class="['app-nav-overlay', { 'tauri-nav': usesDesktopTauriChrome }]" />
           <div class="content-panel-frame" aria-hidden="true" />
           <div
-            :class="['content-top-shadow', { dark: setting.getSiteTheme === 'dark' }]"
+            ref="topShadow"
+            :class="[
+              'content-top-shadow',
+              {
+                dark: setting.getSiteTheme === 'dark',
+                scrolled: contentScrolled,
+              },
+            ]"
             aria-hidden="true"
-          />
+          >
+            <div class="nav-blur-step" />
+            <div class="nav-blur-step" />
+            <div class="nav-blur-step" />
+            <div class="nav-blur-step" />
+            <div class="nav-blur-step" />
+            <div class="nav-blur-tint" />
+          </div>
           <n-layout-content
             position="absolute"
             :class="[
@@ -39,6 +53,7 @@
             ]"
             :native-scrollbar="false"
             embedded
+            @scroll="handleContentScroll"
           >
             <div ref="contentStage" :class="['content-stage', { 'queue-open': showInlineQueue }]">
               <main
@@ -46,8 +61,17 @@
                 :class="['main', { 'settings-main': route.name === 'setting' }]"
                 id="mainContent"
               >
+                <!-- BackTop teleports to <body>, so it is outside .app-layout and cannot
+                     inherit --layout-content-bottom; it reads the :root bottom-chrome
+                     tokens instead. z-index 999 keeps it above the content and the mini
+                     player (2) but under the tab bar (1000) and BigPlayer (2000). -->
                 <n-back-top
-                  :bottom="music.getPlaylists[0] && music.showPlayBar ? 100 : 40"
+                  :right="'var(--app-back-top-right)'"
+                  :bottom="
+                    hasPlayBar
+                      ? 'var(--app-back-top-bottom-with-player)'
+                      : 'var(--app-back-top-bottom)'
+                  "
                   style="transition: all var(--duration-300) var(--ease-out); z-index: 999"
                 />
                 <router-view v-slot="{ Component, route }">
@@ -72,6 +96,13 @@
           <Player />
         </n-layout>
       </div>
+      <div
+        :class="[
+          'bottom-glass',
+          { dark: setting.getSiteTheme === 'dark', 'has-player': hasPlayBar },
+        ]"
+        aria-hidden="true"
+      />
       <MobileTabBar />
     </div>
     <TitleBar v-if="usesDesktopTauriChrome" />
@@ -115,6 +146,12 @@ const router = useRouter();
 const route = useRoute();
 const contentStage = ref<HTMLElement | null>(null);
 const mainContent = ref<HTMLElement | null>(null);
+// Mirrors iOS scrollEdgeAppearance: the mobile header glass only materializes
+// once content actually passes beneath it. At the scroll edge the band is fully
+// transparent, so its blur can never soften the first line of page content —
+// and there is zero backdrop-filter work while the view sits idle at the top.
+const contentScrolled = ref(false);
+const topShadow = ref<HTMLElement | null>(null);
 const isInlineQueueLayout = ref(false);
 const isDesktopTauriRuntime = isTauri() && !isMobileDevice();
 const isNativeEffectPlatform = /Win|Mac/i.test(
@@ -272,6 +309,116 @@ const scrollToTop = () => {
   });
 };
 
+// Scroll-linked header material. Scroll position sets a TARGET, and the value
+// actually rendered chases it with exponential smoothing. Two failure modes this
+// resolves, having tried both endpoints:
+//   - A timed transition on a boolean threshold ignores the input entirely: an 8px
+//     flick spends 300ms slamming the full material in.
+//   - A pure scrub (including native `animation-timeline: scroll()`) tracks input
+//     perfectly but cannot rate-limit itself. Flicking to the top crosses the last
+//     72px in a few frames, so the tint vanishes as a cut — and because the tint is
+//     the most visible layer, that is the part that looks wrong.
+// Smoothing gives scrub-like tracking during ordinary scrolling, where the target
+// moves gradually and the lag is 1-2 frames, while imposing a floor on how fast the
+// material can change when the target jumps. That floor is the whole point: it also
+// covers instant jumps that no scroll-linked approach can smooth, like a
+// programmatic scroll-to-top or a route resetting the shared scroller.
+// The publish-progress-as-a-custom-property idea is TriggerJS's; the library itself
+// measures elements against the viewport, which does not fit a nested scroller.
+const NAV_GLASS_RANGE = 72;
+// Max time, ms, for the material to traverse its full range. These are a RATE
+// LIMIT, not a lag filter: while the target moves slower than the cap — ordinary
+// scrolling — the value tracks it exactly, frame for frame, so the scrub stays
+// 1:1 with the finger. The cap only engages when the target jumps faster than the
+// eye accepts, which is precisely the flick-to-top case.
+//
+// Exponential smoothing was tried first and is worse on both counts: it lags every
+// scroll however gentle, and its tail means "done" is asymptotic — a release slow
+// enough to look right left the value creeping for over a second, holding the
+// backdrop passes alive with it. A rate limit is bounded and terminates exactly.
+//
+// Asymmetric, the fast-attack / slow-release envelope this codebase already uses
+// for audio peak detection. Rising must keep up with the finger; falling should
+// linger, because the tint is the layer the eye follows and its exit is what reads
+// as abrupt.
+const NAV_GLASS_RISE_MS = 180;
+const NAV_GLASS_FALL_MS = 340;
+let glassTarget = 0;
+let glassCurrent = 0;
+let glassRaf = 0;
+// The move in flight is described by where it began and when, so every frame
+// derives its value from real elapsed time rather than accumulating per-frame
+// deltas.
+//
+// Accumulating is what made the fade outlast its own duration. A clamped per-frame
+// dt cannot consume more time than the clamp, so each dropped frame stretched the
+// fade in wall clock — measured, a 286ms fall took 625ms at 8fps — and the backlog
+// then landed in one visible jump. Mobile momentum scroll over five backdrop
+// passes starves the main thread exactly that badly, which is why it read as
+// "lingers, then disappears at once". Anchored, a starved frame costs smoothness
+// but never duration.
+let glassFromValue = 0;
+let glassFromTs = 0;
+let glassWritten = -1;
+
+const commitGlassProgress = () => {
+  const el = topShadow.value;
+  if (!el) return;
+  // Quantised to 1/1000. Coarser steps were fine when this drove a sub-pixel blur
+  // radius, but it now drives layer opacity, where 1/200 is visible as banding.
+  const next = Math.round(glassCurrent * 1000) / 1000;
+  if (next === glassWritten) return;
+  glassWritten = next;
+  el.style.setProperty("--nav-glass-progress", String(next));
+  // Gates the five backdrop passes at rest. Flips only at exactly zero, where
+  // there is nothing left to see, so it can never register as a pop.
+  contentScrolled.value = next > 0;
+};
+
+const stepGlassProgress = (ts: number) => {
+  glassRaf = 0;
+  const span = glassTarget - glassFromValue;
+  // Distance-proportional, so this stays a rate limit: a short hop finishes
+  // quickly, only a full traverse costs the whole duration.
+  const ms = Math.abs(span) * (span > 0 ? NAV_GLASS_RISE_MS : NAV_GLASS_FALL_MS);
+  // Lower clamp matters: an already-pending callback carries its frame-start ts,
+  // which can predate an anchor set later in that same frame.
+  const f = ms > 0 ? Math.min(Math.max((ts - glassFromTs) / ms, 0), 1) : 1;
+  glassCurrent = f >= 1 ? glassTarget : glassFromValue + span * f;
+  commitGlassProgress();
+  if (glassCurrent !== glassTarget) glassRaf = requestAnimationFrame(stepGlassProgress);
+};
+
+const syncGlassProgress = (top: number, ts = performance.now()) => {
+  const next = Math.min(Math.max(top / NAV_GLASS_RANGE, 0), 1);
+  if (next === glassTarget) return;
+  // Re-anchor on the live value so a reversal eases out of wherever it had got
+  // to rather than snapping.
+  glassTarget = next;
+  glassFromValue = glassCurrent;
+  glassFromTs = ts;
+  if (glassCurrent !== glassTarget && !glassRaf) {
+    glassRaf = requestAnimationFrame(stepGlassProgress);
+  }
+};
+
+const handleContentScroll = (e: Event) => {
+  syncGlassProgress((e.target as HTMLElement | null)?.scrollTop ?? 0);
+};
+
+// The scroll container is shared across routes, so a keep-alive'd page can come
+// back already offset without emitting a scroll event. Resync from the live
+// element rather than assuming the new route starts at the top.
+watch(
+  () => route.fullPath,
+  () => {
+    nextTick().then(() => {
+      const scroller = contentStage.value?.closest(".n-scrollbar-container");
+      syncGlassProgress(scroller instanceof HTMLElement ? scroller.scrollTop : 0);
+    });
+  },
+);
+
 // Tauri: handle close behavior (hide-to-tray vs exit vs ask)
 const rememberClose = ref(false);
 let unlistenCloseRequested: (() => void) | null = null;
@@ -329,6 +476,13 @@ onMounted(() => {
     syncInlineQueueLayout();
     inlineQueueMediaQuery.addEventListener("change", syncInlineQueueLayout);
   }
+
+  // A reload can restore the scroller mid-page, which emits no scroll event — the
+  // band would then be missing until the user next scrolled.
+  nextTick().then(() => {
+    const scroller = contentStage.value?.closest(".n-scrollbar-container");
+    if (scroller instanceof HTMLElement) syncGlassProgress(scroller.scrollTop);
+  });
 
   // 挂载方法至全局
   window.$scrollToTop = scrollToTop;
@@ -438,6 +592,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   inlineQueueMediaQuery?.removeEventListener("change", syncInlineQueueLayout);
   window.removeEventListener("keydown", spacePlayOrPause);
+  if (glassRaf) cancelAnimationFrame(glassRaf);
+  glassRaf = 0;
   unlistenCloseRequested?.();
   unlistenCloseRequested = null;
   unlistenMainVisibility?.();
@@ -485,6 +641,9 @@ onBeforeUnmount(() => {
   top: 0;
   bottom: var(--layout-content-bottom);
   scroll-padding-top: var(--content-stage-padding-top);
+  // Mirrors the clip-path's bottom inset so programmatic scrolls (scrollIntoView,
+  // hash anchors) can't park a target in the clipped strip below the frame.
+  scroll-padding-bottom: var(--content-stage-padding-y);
   clip-path: inset(
     var(--content-stage-padding-top) var(--content-stage-padding-right)
       var(--content-stage-padding-y) var(--content-stage-padding-x) round var(--radius-panel)
@@ -595,6 +754,13 @@ onBeforeUnmount(() => {
 
   @media (max-width: 768px) {
     clip-path: none;
+    // The bottom chrome (mini player + tab bar) is glass, so content has to pass
+    // *under* it — a scroller that stops above the bars would leave the blur with
+    // nothing but flat shell color to sample. Run the viewport to the window
+    // bottom and give the inset back as padding, so the last row is still
+    // reachable above the bars instead of being permanently parked behind them.
+    bottom: 0;
+    scroll-padding-bottom: var(--layout-content-bottom);
 
     .queue-column {
       display: none;
@@ -603,6 +769,7 @@ onBeforeUnmount(() => {
     .content-stage,
     .content-stage.queue-open {
       padding: 0;
+      padding-bottom: var(--layout-content-bottom);
     }
 
     .main {
@@ -733,6 +900,9 @@ onBeforeUnmount(() => {
   min-width: 0;
   --content-stage-padding-x: 0px;
   --content-stage-padding-right: 8px;
+  // Effectively the *bottom* gap: the top edge has its own
+  // --content-stage-padding-top, and .content-stage re-overrides padding-top
+  // after the shorthand uses this for both.
   --content-stage-padding-y: 0px;
   --content-stage-padding-top: var(--app-shell-top-gap);
   --content-scrollbar-right: calc(var(--content-stage-padding-right) + 2px);
@@ -759,6 +929,20 @@ onBeforeUnmount(() => {
     --layout-content-bottom: 70px;
   }
 
+  // With the play bar hidden the frame had nothing holding it off the window
+  // bottom, so it ran flush to the edge while the top kept its shell gap. Mirror
+  // the top gap. When the play bar IS visible it already provides that inset via
+  // --layout-content-bottom, so this stays 0 there.
+  //
+  // Desktop only: the mobile shell is edge-to-edge (padding-top and
+  // padding-right both collapse to 0 under 768px) and always has the tab bar
+  // below, so a gap there would be out of place.
+  @media (min-width: 769px) {
+    &:not(.player-visible) {
+      --content-stage-padding-y: var(--app-shell-top-gap);
+    }
+  }
+
   &.queue-open {
     --content-stage-padding-right: 0px;
     --content-scrollbar-right: calc(var(--queue-column-width) + 2px);
@@ -768,7 +952,6 @@ onBeforeUnmount(() => {
   @media (min-width: 1041px) and (max-width: 1180px) {
     --content-stage-padding-x: 0px;
     --content-stage-padding-right: 8px;
-    --content-stage-padding-y: 0px;
     --queue-column-width: clamp(252px, 24vw, 292px);
 
     &.queue-open {
@@ -783,12 +966,12 @@ onBeforeUnmount(() => {
     --content-stage-padding-right: 0px;
     --content-scrollbar-right: 0px;
     --player-right-inset: 0px;
-    // 56px tab bar only + safe-area-bottom (home indicator).
-    --layout-content-bottom: calc(56px + var(--app-safe-area-bottom, 0px));
+    // 底部 chrome 的高度统一由 :root 的 --app-bottom-chrome* 提供
+    // (global.scss)，其中 tab bar 高度已经含 safe-area-bottom，不要再加一次。
+    --layout-content-bottom: var(--app-bottom-chrome);
 
     &.player-visible {
-      // 70px player + 56px tab bar + safe-area-bottom.
-      --layout-content-bottom: calc(126px + var(--app-safe-area-bottom, 0px));
+      --layout-content-bottom: var(--app-bottom-chrome-with-player);
     }
   }
 }
@@ -863,11 +1046,78 @@ onBeforeUnmount(() => {
   --content-panel-gradient-overlay: rgba(24, 24, 28, 0.34);
 }
 
+// A custom property is only interpolatable if it is registered with a type —
+// an unregistered one is a token string and would jump 0 -> 1 with no
+// in-between. Registering <number> is what makes the blur radius itself
+// animate, rather than cross-fading a sharp copy against a blurred one.
+// Must be top-level: @property is not scoped and is ignored inside a selector.
+@property --nav-glass-progress {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+// Mobile header glass, modelled on the iOS UIVisualEffectView backdrop.
+//
+// The system effect is not a blur — it is a filter chain on a CABackdropLayer:
+// gaussianBlur -> colorSaturate (~1.8) -> colorBrightness -> luminanceCurveMap.
+// The last two are what sell it: they compress the backdrop's dynamic range
+// toward the material's own tone, so it reads as frosted glass instead of a
+// blurry photograph. Blur alone always looks cheap, however well it is ramped.
+//
+// Each step below carries a *fifth* of the grade. Because a backdrop-filter
+// samples everything already painted behind it — earlier siblings included — the
+// grades compound multiplicatively down the stack, so each value is the 5th root
+// of the target rather than the target itself. The payoff is that the color
+// grading ramps out along the exact same masks as the blur, for free, instead of
+// needing its own gradient. Do not "simplify" these into one strong grade on a
+// single layer: that reintroduces a hard edge in color where the blur has none.
+// --nav-glass-progress (0..1) scales every radius and the whole grade, so the
+// material genuinely grows out of nothing instead of being cross-faded on top of
+// the sharp page. It is a registered property (see @property above) purely so it
+// can be interpolated; where that is unsupported it still substitutes fine and
+// just switches discretely.
+// $in/$out is the progress window over which this layer fades up. Layers are
+// staggered, so the *effective* radius still ramps with progress even though each
+// layer's own radius never changes.
+//
+// Fixed radius is the point. A changing blur radius invalidates the filter chain
+// every frame, forcing all five gaussian passes to re-run — including after
+// scrolling stops, when the backdrop is static and nothing else needs redoing.
+// Opacity leaves the blurred result cacheable and composites it at varying alpha,
+// which is why the fade no longer stutters. Cross-fading adjacent layers is
+// imperceptible here because the radii differ by under a pixel.
+@mixin nav-blur-step($radius, $solid, $mid, $fade, $in, $out) {
+  -webkit-backdrop-filter: blur($radius) var(--nav-glass-grade);
+  backdrop-filter: blur($radius) var(--nav-glass-grade);
+  opacity: clamp(0, calc((var(--nav-glass-progress) - #{$in}) / #{$out - $in}), 1);
+  // A three-stop mask; the middle stop biases the falloff toward ease-out so the
+  // ramp does not read as a straight linear wipe.
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 $solid,
+    rgba(0, 0, 0, 0.45) $mid,
+    transparent $fade
+  );
+  mask-image: linear-gradient(to bottom, #000 $solid, rgba(0, 0, 0, 0.45) $mid, transparent $fade);
+}
+
 .content-top-shadow {
-  --content-top-shadow-contact: rgba(0, 0, 0, 0.18);
-  --content-top-shadow-middle: rgba(0, 0, 0, 0.075);
-  --content-top-shadow-ambient: rgba(0, 0, 0, 0.025);
-  --content-top-shadow-highlight: rgba(255, 255, 255, 0.2);
+  // Per-step color grade. Compounds across the 5 steps — see the mixin comment.
+  // Saturation is the iOS "material" tell; brightness/contrast stand in for
+  // colorBrightness + luminanceCurveMap (CSS has no per-channel curve map).
+  // Each value is the 5th root of the target, since all five steps compound:
+  // 1.125^5 = 1.80 saturation, 1.012^5 = 1.06 brightness, 0.988^5 = 0.94 contrast.
+  //
+  // Static, NOT scaled by progress. Layer opacity already ramps the grade — a
+  // half-faded layer contributes half its grade — and keeping the filter chain
+  // constant is what lets the blurred result stay cached across the fade instead of
+  // being recomputed every frame.
+  --nav-glass-grade: saturate(112.5%) brightness(101.2%) contrast(98.8%);
+  // Tint = the material's own tone. Kept low because the grade above is doing
+  // most of the separation work; a heavy tint just reproduces the old gray mask.
+  --nav-blur-tint-top: rgba(252, 252, 253, 0.44);
+  --nav-blur-tint-mid: rgba(252, 252, 253, 0.13);
 
   display: none;
   position: absolute;
@@ -879,27 +1129,154 @@ onBeforeUnmount(() => {
   overflow: hidden;
   pointer-events: none;
   border-radius: calc(var(--radius-panel) - 1px) calc(var(--radius-panel) - 1px) 0 0;
-  background: linear-gradient(
-    to bottom,
-    var(--content-top-shadow-contact) 0,
-    var(--content-top-shadow-middle) 12%,
-    var(--content-top-shadow-ambient) 38%,
-    transparent 100%
-  );
-  box-shadow: inset 0 1px 0 var(--content-top-shadow-highlight);
-  transition:
-    right var(--duration-300) var(--ease-in-out),
-    opacity var(--duration-200) var(--ease-out);
+  // --nav-glass-progress (0..1) is written from JS each frame; see the scroll
+  // section in the script. It scrubs against scroll position rather than playing as
+  // a fixed-duration animation, so the material tracks the finger instead of firing
+  // a 300ms cue on a threshold, and it is rate-limited there so a flick back to the
+  // top still unwinds as a visible fade.
+  //
+  // Deliberately NOT a CSS transition on this variable: that would re-add lag on
+  // every scroll, and cannot distinguish an ordinary scroll from a jump. Also
+  // deliberately not the parent's opacity — an ancestor with opacity < 1 becomes a
+  // backdrop root, isolating descendant backdrop-filters so they sample an empty
+  // group and the blur vanishes. visibility only gates the passes at rest, and
+  // flips at exactly zero, where there is nothing left to see.
+  --nav-glass-progress: 0;
+  visibility: hidden;
+  transition: right var(--duration-300) var(--ease-in-out);
+
+  &.scrolled {
+    visibility: visible;
+  }
 
   &.dark {
-    --content-top-shadow-contact: rgba(0, 0, 0, 0.68);
-    --content-top-shadow-middle: rgba(0, 0, 0, 0.32);
-    --content-top-shadow-ambient: rgba(0, 0, 0, 0.1);
-    --content-top-shadow-highlight: rgba(255, 255, 255, 0.08);
+    // Dark materials pull the backdrop down AND compress it. Contrast must stay
+    // below 100% here: iOS's luminanceCurveMap brings highlights down hard and
+    // lifts blacks slightly, so bright album art can't punch through the bar.
+    // Going above 100% (as a "darker = punchier" instinct suggests) crushes blacks
+    // to pure black while leaving highlights hot — the range widens instead of
+    // narrowing, and the glass stops reading as a surface.
+    // Fifth roots: 0.944^5 = 0.75 brightness, 0.968^5 = 0.85 contrast.
+    // Net effect: white backdrop lands at ~0.34 luma, black at ~0.06 — a 0.28
+    // range, down from 0.43. That compression IS the frosted look.
+    --nav-glass-grade: saturate(111%) brightness(94.4%) contrast(96.8%);
+    // Slightly heavier + slightly warmer than a neutral gray: pure neutral over a
+    // compressed backdrop reads as the old flat mask again.
+    --nav-blur-tint-top: rgba(22, 22, 27, 0.56);
+    --nav-blur-tint-mid: rgba(22, 22, 27, 0.16);
   }
 
   .app-layout.queue-open & {
     right: calc(var(--content-stage-padding-right) + var(--queue-column-width) + 1px);
+  }
+
+  // The blur layers only exist for the mobile header; on desktop the parent is
+  // display:none, so they never paint. No opacity or per-step stagger here any
+  // more: --nav-glass-progress scales the radii directly, so the blur genuinely
+  // grows from nothing and unwinds the same way, with no sharp copy to ghost
+  // against and nothing to sequence.
+  .nav-blur-step,
+  .nav-blur-tint {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    pointer-events: none;
+  }
+
+  // iOS uses a true variable blur (private CAFilter "variableBlur"): one pass whose
+  // radius is modulated per-pixel by a mask. CSS has no equivalent, so this
+  // approximates it with five passes of rising radius, each masked to end higher
+  // than the last. Radii compound in quadrature, so they are solved backwards from
+  // the effective ramp we want — ~5px under the buttons stepping down through
+  // 3.6 / 2.4 / 1.4 / 0.6 — rather than picked as round numbers. Nowhere in the
+  // band does the radius hold constant, which is what removes the visible layer.
+  //
+  // --nav-blur-edge is the Nav's bottom edge. Stops are anchored to it in px
+  // rather than percentages so the ramp keeps its position relative to the
+  // buttons instead of drifting with notch height. The button row sits above
+  // every step's solid threshold, so it gets the full effect; the taper happens
+  // in the ~34px below it.
+  .nav-blur-step {
+    --nav-blur-edge: calc(42px + var(--app-safe-area-top, 0px));
+
+    &:nth-child(1) {
+      @include nav-blur-step(
+        0.6px,
+        calc(var(--nav-blur-edge) + 18px),
+        calc(var(--nav-blur-edge) + 27px),
+        calc(var(--nav-blur-edge) + 34px),
+        0,
+        0.28
+      );
+    }
+
+    &:nth-child(2) {
+      @include nav-blur-step(
+        1.25px,
+        calc(var(--nav-blur-edge) + 10px),
+        calc(var(--nav-blur-edge) + 19px),
+        calc(var(--nav-blur-edge) + 26px),
+        0.1,
+        0.42
+      );
+    }
+
+    &:nth-child(3) {
+      @include nav-blur-step(
+        1.95px,
+        calc(var(--nav-blur-edge) + 2px),
+        calc(var(--nav-blur-edge) + 11px),
+        calc(var(--nav-blur-edge) + 18px),
+        0.22,
+        0.58
+      );
+    }
+
+    &:nth-child(4) {
+      @include nav-blur-step(
+        2.7px,
+        calc(var(--nav-blur-edge) - 6px),
+        calc(var(--nav-blur-edge) + 3px),
+        calc(var(--nav-blur-edge) + 10px),
+        0.36,
+        0.76
+      );
+    }
+
+    &:nth-child(5) {
+      @include nav-blur-step(
+        3.5px,
+        calc(var(--nav-blur-edge) - 14px),
+        calc(var(--nav-blur-edge) - 5px),
+        calc(var(--nav-blur-edge) + 2px),
+        0.52,
+        1
+      );
+    }
+  }
+
+  // Tint fades out ahead of the blur ramp — a tint edge is far more visible than a
+  // blur edge. No specular highlight here: this band is flush to the screen top,
+  // and iOS only lights the leading edge of *inset* glass. A 1px line at y=0 would
+  // read as a rendering artifact across the status bar. The Nav pills carry the
+  // specular instead, since those are the inset elements.
+  .nav-blur-tint {
+    background: linear-gradient(
+      to bottom,
+      var(--nav-blur-tint-top) 0,
+      var(--nav-blur-tint-mid) calc(var(--app-safe-area-top, 0px) + 40px),
+      transparent calc(var(--app-safe-area-top, 0px) + 64px)
+    );
+    // Rides the same progress as the blur, but SQUARED. The tint is the most
+    // visible layer, so a linear ramp makes it the thing you notice arriving and
+    // leaving. Squaring keeps it near-invisible through the early part of the
+    // range, so by the time the top edge is reached there is almost nothing left
+    // to disappear — the blur leads, the color follows. Opacity is safe on this
+    // element specifically: it carries no backdrop-filter, so it forms no backdrop
+    // root for anything.
+    opacity: calc(var(--nav-glass-progress) * var(--nav-glass-progress));
   }
 
   @media (max-width: 768px) {
@@ -907,15 +1284,91 @@ onBeforeUnmount(() => {
     top: 0;
     right: 0;
     left: 0;
-    height: calc(144px + var(--app-safe-area-top, 0px));
+    // Must clear the longest ramp (--nav-blur-edge + 34px = 76px + safe-area) or
+    // the outermost blur step gets clipped mid-fade, reinstating a hard edge.
+    height: calc(84px + var(--app-safe-area-top, 0px));
     border-radius: 0;
-    box-shadow: none;
+  }
+}
 
-    &.dark {
-      --content-top-shadow-contact: rgba(0, 0, 0, 0.52);
-      --content-top-shadow-middle: rgba(0, 0, 0, 0.24);
-      --content-top-shadow-ambient: rgba(0, 0, 0, 0.08);
-    }
+// Mobile bottom glass — one shared surface for the mini player AND the tab bar. Both of
+// those paint transparent on mobile, so the two bars read as a single material with no
+// seam and no color step between them. Sits at z-index 1 (above the content layer, below
+// .player's 2 and the tab bar's 1000), so the bars' own text and controls stay crisp on
+// top of it.
+//
+// The top edge is a hard boundary, deliberately: the glass covers the bar rect and
+// nothing above it. A gradient taper reaching up into the page blurs the bottom of the
+// content itself, which reads as a smeared strip rather than as a surface.
+.bottom-glass {
+  display: none;
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  // The bar stack. --app-tab-bar-height already carries the home-indicator inset.
+  height: var(--app-bottom-chrome-with-player);
+  z-index: 1;
+  pointer-events: none;
+  --bottom-glass-tint: rgba(250, 250, 252, 0.72);
+  background-color: var(--bottom-glass-tint);
+  // The grade matters more than the radius. iOS's material is
+  // gaussianBlur -> colorSaturate -> colorBrightness -> luminanceCurveMap, and the last
+  // two are what stop a bright backdrop from punching through: they COMPRESS the
+  // backdrop's dynamic range toward the material's own tone. Hence contrast below 100%
+  // — the instinctive "more contrast = punchier glass" widens the range instead and the
+  // album art behind the bar starts competing with the track title in front of it.
+  // Saturation is held near neutral for the same reason; pushing it (the usual
+  // saturate(180%) glass recipe) amplifies exactly the cover colors we need to sit back.
+  // 40px rather than 20px so the backdrop collapses into flat color instead of staying a
+  // recognizable smeared image — shape is as distracting as color here.
+  //
+  // Prefixed FIRST, standard LAST — not cosmetic. The CSS minifier treats the two as
+  // duplicate declarations of one property and keeps only the last, so writing the
+  // standard one first ships a -webkit--only rule and the blur disappears entirely in
+  // any engine without the alias. Every other backdrop-filter in this project is ordered
+  // the same way for that reason.
+  -webkit-backdrop-filter: blur(40px) saturate(112%) brightness(1.08) contrast(0.9);
+  backdrop-filter: blur(40px) saturate(112%) brightness(1.08) contrast(0.9);
+  // Dissolves with the mini bar's own surface when BigPlayer takes over, so the glass
+  // does not outlive the bar it belongs to. Safe on this element: its own opacity
+  // composites the already-filtered backdrop. It would NOT be safe on an ancestor —
+  // opacity < 1 there makes a backdrop root and the blur silently samples an empty group.
+  opacity: var(--mobile-mini-player-surface-opacity, 1);
+  // With no mini player the whole band drops by that bar's height, leaving the glass
+  // over the tab bar alone. Transform, not height, so it animates alongside the player's
+  // own enter/leave without relayout and without re-running the blur over a growing box.
+  transform: translate3d(0, var(--app-player-bar-height), 0);
+  transition:
+    transform var(--duration-300) cubic-bezier(0.65, 0.05, 0.36, 1),
+    background-color var(--duration-300) var(--ease-out);
+  // Two jobs in one property. The inset hairline is the specular top edge every real
+  // glass surface has, and it is what makes this read as a pane rather than as a washed
+  // rectangle. It doubles as the readability fix the removed border used to provide: a
+  // defined edge separates bar from content, where a blur gradient only muddled both.
+  // The outer shadow is deliberately tight — enough to lift the bar, not enough to
+  // register as a band of its own.
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 55%),
+    0 -1px 3px rgb(0 0 0 / 4%);
+
+  &.has-player {
+    transform: translate3d(0, 0, 0);
+  }
+
+  &.dark {
+    --bottom-glass-tint: rgba(16, 16, 20, 0.66);
+    -webkit-backdrop-filter: blur(40px) saturate(108%) brightness(0.68) contrast(0.86);
+    backdrop-filter: blur(40px) saturate(108%) brightness(0.68) contrast(0.86);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 8%),
+      0 -1px 3px rgb(0 0 0 / 18%);
+  }
+}
+
+@media (max-width: 768px) {
+  .bottom-glass {
+    display: block;
   }
 }
 
