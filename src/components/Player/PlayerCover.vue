@@ -184,13 +184,14 @@ import { musicStore, userStore, settingStore } from "@/store";
 import { storeToRefs } from "pinia";
 import { useRouter } from "vue-router";
 import { setSeek } from "@/utils/AudioContext";
-import { NativeRustSound } from "@/utils/tauri/NativeRustSound";
+import { NativeRustSound } from "@/utils/tauri/audio/nativeRustSound";
 import BouncingSlider from "./BouncingSlider.vue";
 import defaultCover from "/images/pic/default.png?url";
 import gsap from "gsap";
 import { NIcon } from "naive-ui";
 import { useI18n } from "vue-i18n";
-import { isWindowsTauri, windowManager } from "@/utils/tauri/windowManager";
+import { isWindowsTauri } from "@/utils/tauri/core/runtime";
+import { windowManager } from "@/utils/tauri/window/manager";
 import { Motion } from "motion-v";
 import { getDesktopPlayerSharedLayoutIds } from "./desktopSharedLayout";
 

@@ -5,8 +5,10 @@ import type {
   AudioThreadEventCallback,
   AudioThreadEventMessage,
   AudioThreadMessage,
-} from "./audioBridge";
-import { audioSendMsg, isTauri, listenPlayerEvents } from "./audioBridge";
+} from "../protocol";
+import { audioSendMsg, listenPlayerEvents } from "../bridge";
+import { isTauri } from "../../core/runtime";
+import type { AudioBackendTransport } from "./types";
 
 const WASM_ANALYSIS_INTERVAL_MS = 66;
 // Drive the UI position from the real <audio> clock at a few Hz. The element
@@ -19,14 +21,7 @@ const WASM_POSITION_DISPATCH_INTERVAL_MS = 200;
 // reads, so refresh it lazily rather than on every dispatch tick.
 const WASM_WORKER_POSITION_SYNC_INTERVAL_MS = 1000;
 
-export interface AudioBackendTransport {
-  connect(): Promise<void>;
-  subscribe(listener: AudioThreadEventCallback): () => void;
-  sendOrQueue(msg: AudioThreadMessage): boolean;
-  getGainNode?(): GainNode | null;
-  ensureAudioGraph?(): Promise<boolean>;
-  shutdown?(): void;
-}
+export type { AudioBackendTransport } from "./types";
 
 export function isWasmAudioBackendAvailable(): boolean {
   return (
@@ -277,7 +272,7 @@ class WasmAudioBackendWorkerHost {
   private _pending = new Map<number, WasmBackendWorkerCall>();
 
   constructor() {
-    this._worker = new Worker(new URL("./audioBackendWorker.ts", import.meta.url), {
+    this._worker = new Worker(new URL("../workers/backendWorker.ts", import.meta.url), {
       type: "module",
       name: "gmplayer-audio-backend",
     });
@@ -455,7 +450,7 @@ class WasmAudioAnalysisWorkerHost {
   private _pending = new Map<number, WasmAnalysisWorkerCall>();
 
   constructor() {
-    this._worker = new Worker(new URL("./audioAnalysisWorker.ts", import.meta.url), {
+    this._worker = new Worker(new URL("../workers/analysisWorker.ts", import.meta.url), {
       type: "module",
       name: "gmplayer-audio-analysis",
     });

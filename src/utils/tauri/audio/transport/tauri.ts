@@ -5,9 +5,9 @@ import type {
   AudioThreadEventCallback,
   AudioThreadEventMessage,
   AudioThreadMessage,
-} from "./audioBridge";
-import { audioSendMsg, listenPlayerEvents } from "./audioBridge";
-import type { AudioBackendTransport } from "./audioIpcTypes";
+} from "../protocol";
+import { audioSendMsg, listenPlayerEvents } from "../bridge";
+import type { AudioBackendTransport } from "./types";
 
 class TauriInvokeAudioIpc implements AudioBackendTransport {
   private _listeners: Set<AudioThreadEventCallback> = new Set();

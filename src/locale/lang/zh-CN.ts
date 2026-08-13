@@ -379,6 +379,21 @@ const messages: Record<string, unknown> = {
   },
   // 播放器
   player: {
+    // 无障碍标签：图标按钮没有可见文字，读屏器只能靠 aria-label
+    controls: {
+      playMode: "播放模式",
+      previous: "上一首",
+      next: "下一首",
+      play: "播放",
+      pause: "暂停",
+      comment: "评论",
+      like: "添加到我喜欢",
+      unlike: "从我喜欢中移除",
+      more: "更多操作",
+      dislike: "不感兴趣",
+      volume: "音量",
+      progress: "播放进度",
+    },
     queue: {
       nowPlaying: "正在播放",
       playingNext: "接下来播放",
@@ -496,9 +511,10 @@ const messages: Record<string, unknown> = {
     updateEta: "剩余 {time}",
     releaseNotesTitle: "更新内容",
     playerStyle: "播放器样式",
-    playerStyleTip: "播放器左侧功能区样式",
+    playerStyleTip: "桌面端全屏播放器的布局样式；沉浸模式为宽屏布局，移动端竖屏仍使用移动端播放器",
     cover: "封面模式",
     record: "唱片模式",
+    immersive: "沉浸模式",
     backgroundImageShow: "播放背景样式",
     solid: "封面主色",
     blur: "封面流动",

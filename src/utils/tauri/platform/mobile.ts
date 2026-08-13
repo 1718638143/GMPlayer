@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { isTauri } from "./windowManager";
+import { isTauri } from "../core/runtime";
 
 export function isMobileDevice(): boolean {
   if (typeof window === "undefined" || !window.navigator) return false;

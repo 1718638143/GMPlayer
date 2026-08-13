@@ -182,7 +182,8 @@ import { setSeek } from "@/utils/AudioContext";
 import BouncingSlider from "./BouncingSlider.vue";
 import { NIcon } from "naive-ui";
 import { useI18n } from "vue-i18n";
-import { isWindowsTauri, windowManager } from "@/utils/tauri/windowManager";
+import { isWindowsTauri } from "@/utils/tauri/core/runtime";
+import { windowManager } from "@/utils/tauri/window/manager";
 import { Motion } from "motion-v";
 import { getDesktopPlayerSharedLayoutIds } from "./desktopSharedLayout";
 

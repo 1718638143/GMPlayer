@@ -18,14 +18,21 @@
  *     side only emits 1 Hz heartbeats.
  */
 
-import type { ISound, SoundEventCallback, SoundEventType } from "../AudioContext/types";
-import { AudioTimelineSync, isTauri } from "./audioBridge";
-import type { AudioQuality, AudioThreadEvent, DisplayAudioInfo, SongData } from "./audioBridge";
+import type { ISound, SoundEventCallback, SoundEventType } from "../../AudioContext/types";
+import { isTauri } from "../core/runtime";
+import { AudioTimelineSync } from "./timeline";
+import type {
+  AudioQuality,
+  AudioThreadEvent,
+  DisplayAudioInfo,
+  NativePlannerStatus,
+  SongData,
+} from "./protocol";
 import {
   getAudioBackendTransport,
   isWasmAudioBackendAvailable,
   type AudioBackendTransport,
-} from "./audioIpc";
+} from "./transport";
 
 const IS_DEV = import.meta.env?.DEV ?? false;
 const LOAD_TIMEOUT_MS = 10_000;
@@ -42,6 +49,20 @@ const NATIVE_ADVANCE_START_TIMEOUT_MS = 2500;
 /** Once LoadingAudio confirmed the advance, how long the source download may
  * take before giving up and falling back to the JS-driven transition. */
 const NATIVE_ADVANCE_LOAD_TIMEOUT_MS = 20_000;
+
+/**
+ * Observer for the backend's authoritative manifest revision.
+ *
+ * Registered by `NativeManifestPublisher` so it can keep its own counter ahead
+ * of the backend's. Kept as a module-level hook rather than a direct import to
+ * avoid a cycle (the publisher imports this module for the `instanceof` check).
+ */
+type PlannerRevisionObserver = (backendRevision: number) => void;
+let plannerRevisionObserver: PlannerRevisionObserver | null = null;
+
+export const setPlannerRevisionObserver = (observer: PlannerRevisionObserver | null): void => {
+  plannerRevisionObserver = observer;
+};
 
 interface LocalState {
   musicId: string;
@@ -153,6 +174,11 @@ export class NativeRustSound implements ISound {
    * AudioPlayFinished/LoadAudio pairs back-to-back, faster than the async
    * prefill could re-arm a per-transition flag. */
   private _nativeAdvanceWindowApplied: boolean = false;
+  /** Mirrors `NativePlannerStatus.active`. Unlike the window flag this needs no
+   * per-hop re-arming: once a manifest is published the planner owns every
+   * advance until it is cleared or exhausted. */
+  private _nativePlannerActive: boolean = false;
+  private _nativePlannerStatus: NativePlannerStatus | null = null;
   /** True between AudioPlayFinished and the adoption of the backend-initiated
    * advance (LoadAudio for the next track) — the 'end' event is suppressed
    * while pending and re-emitted by the fallback if the advance never lands. */
@@ -317,7 +343,7 @@ export class NativeRustSound implements ISound {
   //  Transport: invoke control path                             ║
   // ═════════════════════════════════════════════════════════════╝
 
-  private _sendCommand(msg: import("./audioBridge").AudioThreadMessage): boolean {
+  private _sendCommand(msg: import("./protocol").AudioThreadMessage): boolean {
     const transport = this._transport ?? getAudioBackendTransport();
     this._transport = transport;
     const sentNow = transport.sendOrQueue(msg);
@@ -325,6 +351,39 @@ export class NativeRustSound implements ISound {
       console.warn("[NativeRustSound] audio control command queued until reconnect", msg.type);
     }
     return sentNow;
+  }
+
+  /**
+   * Publish the full playback manifest to the backend planner. Unlike
+   * `applyNativeQueueWindow` this carries stable identities rather than
+   * pre-resolved URLs, so the backend can advance to any track in the list —
+   * and re-resolve expired links — without a live JS runtime.
+   */
+  setNativeManifest(manifest: import("./protocol").NativePlaybackManifest): void {
+    if (this._destroyed || this._terminallyCleared) return;
+    this._sendCommand({ type: "setNativeManifest", manifest });
+  }
+
+  /** Drop the backend manifest, returning advancement to the JS-driven path. */
+  clearNativeManifest(revision: number): void {
+    if (this._destroyed || this._terminallyCleared) return;
+    this._sendCommand({ type: "clearNativeManifest", revision });
+  }
+
+  /** Push resolver endpoints/credentials (login, logout, setting changes). */
+  setNativeResolverConfig(config: import("./protocol").NativeResolverConfig): void {
+    if (this._destroyed || this._terminallyCleared) return;
+    this._sendCommand({ type: "setNativeResolverConfig", config });
+  }
+
+  /**
+   * Gate planner-driven advancement without dropping the manifest. Used for
+   * modes whose next track only the server knows (personal FM, listen
+   * together).
+   */
+  setNativePlannerEnabled(enabled: boolean): void {
+    if (this._destroyed || this._terminallyCleared) return;
+    this._sendCommand({ type: "setNativePlannerEnabled", enabled });
   }
 
   /**
@@ -567,13 +626,18 @@ export class NativeRustSound implements ISound {
       case "audioPlayFinished": {
         this._pendingPlayCommand = false;
         if (evt.data.musicId === this._expectedMusicId) {
-          if (isTauri() && this._nativeAdvanceWindowApplied && this._isActiveController()) {
-            // The backend queue window holds the real next track and Rust
-            // advances on its own (`NextSongGapless`) — even while this JS
-            // runtime is frozen in the background. Suppress the legacy
-            // 'end' → setPlaySongIndex teardown and adopt the backend
-            // transition; the fallback timer re-emits 'end' if no advance
-            // lands (window exhausted, expired URL, load failure).
+          if (
+            isTauri() &&
+            (this._nativePlannerActive || this._nativeAdvanceWindowApplied) &&
+            this._isActiveController()
+          ) {
+            // The backend advances on its own — even while this JS runtime is
+            // frozen in the background. With a manifest published the planner
+            // can reach any track and re-resolve expired URLs; without one the
+            // bounded queue window covers the next hop. Either way, suppress
+            // the legacy 'end' → setPlaySongIndex teardown and adopt the
+            // backend transition. The fallback timer re-emits 'end' if no
+            // advance lands (exhausted, expired URL, load failure).
             this._beginNativeAdvanceAdoption();
             break;
           }
@@ -600,6 +664,43 @@ export class NativeRustSound implements ISound {
 
       case "volumeChanged": {
         this._state.volume = evt.data.volume;
+        break;
+      }
+
+      case "nativePlannerStatusChanged": {
+        const status = evt.data;
+        this._nativePlannerStatus = status.status;
+        const planner = status.status;
+        // The planner can drive advancement whenever it holds a live manifest
+        // and has not given up on it.
+        this._nativePlannerActive = planner.manifestRevision > 0 && !planner.exhausted;
+        // Keep our revision counter ahead of the backend's. Without this a
+        // WebView reload (module state resets, backend does not) would leave
+        // every subsequent publish rejected as stale.
+        plannerRevisionObserver?.(planner.manifestRevision);
+        break;
+      }
+
+      case "nativePlannerAdvanced": {
+        // The backend picked and started the next track by itself. Adoption
+        // still runs through the existing loadAudio/syncStatus path — this
+        // event only carries the stable identity that path cannot infer from
+        // a re-resolved CDN URL.
+        this._adoptNextBackendMusicId = true;
+        this._nativeAutoMixSyncPending = true;
+        this._state.currentPlayIndex = evt.data.playlistIndex;
+        break;
+      }
+
+      case "nativePlannerExhausted": {
+        // Every candidate failed. Stop suppressing 'end' so the JS-driven path
+        // takes over and the user sees a real stop rather than silence.
+        this._nativePlannerActive = false;
+        if (IS_DEV) {
+          console.warn(
+            `[NativeRustSound] planner exhausted after ${evt.data.attempted} attempts: ${evt.data.reason}`,
+          );
+        }
         break;
       }
 
@@ -829,7 +930,7 @@ export class NativeRustSound implements ISound {
 
   private _issueSeek(position: number): boolean {
     const requestId = isTauri() ? this._newSeekRequestId() : undefined;
-    const msg: import("./audioBridge").AudioThreadMessage =
+    const msg: import("./protocol").AudioThreadMessage =
       requestId !== undefined
         ? { type: "seekAudio", position, requestId, expectedMusicId: this._expectedMusicId }
         : { type: "seekAudio", position, expectedMusicId: this._expectedMusicId };
@@ -864,6 +965,21 @@ export class NativeRustSound implements ISound {
   }
 
   // ── Native queue-window advance adoption ──────────────────────
+
+  /**
+   * Whether the backend planner currently owns advancement. Mirrors
+   * `NativePlannerStatus.active` and is the wider replacement for
+   * `_nativeAdvanceWindowApplied`: the planner covers the whole list, so it
+   * stays true across every hop instead of needing a re-arm per window.
+   */
+  isNativePlannerActive(): boolean {
+    return this._nativePlannerActive;
+  }
+
+  /** Last planner status the backend reported, or null before the first event. */
+  getNativePlannerStatus(): NativePlannerStatus | null {
+    return this._nativePlannerStatus;
+  }
 
   private _beginNativeAdvanceAdoption(): void {
     this._nativeAdvancePending = true;
@@ -1198,7 +1314,7 @@ export class NativeRustSound implements ISound {
     return (await this._transport?.ensureAudioGraph?.()) ?? false;
   }
 
-  getEffectManager(): import("../AudioContext/AudioEffectManager").AudioEffectManager | null {
+  getEffectManager(): import("../../AudioContext/AudioEffectManager").AudioEffectManager | null {
     return null;
   }
 
@@ -1216,6 +1332,7 @@ export class NativeRustSound implements ISound {
     this._clearNativeAdvanceFallback();
     this._nativeAdvancePending = false;
     this._nativeAdvanceWindowApplied = false;
+    this._nativePlannerActive = false;
     this._clearNoFFTWarning();
     if (this._unlistenTransport) {
       try {

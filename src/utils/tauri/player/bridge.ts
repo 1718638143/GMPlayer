@@ -6,7 +6,7 @@ import {
   type PlayerSettingsPayload,
   type PlayerStatePayload,
   type PlayerTimePayload,
-} from "./playerCommunicationTypes";
+} from "./types";
 
 // ── Payload Types ──────────────────────────────────────────────────────────
 
@@ -16,7 +16,7 @@ export type {
   PlayerSettingsPayload,
   PlayerStatePayload,
   PlayerTimePayload,
-} from "./playerCommunicationTypes";
+} from "./types";
 
 // ── Default Values ─────────────────────────────────────────────────────────
 

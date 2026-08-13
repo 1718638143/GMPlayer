@@ -51,6 +51,14 @@ impl AudioPlayer {
             })
             .await;
 
+        // The manifest planner owns advancement whenever it has a list: it can
+        // reach any track in the playlist and re-resolve expired URLs, neither
+        // of which the bounded queue can do once the JS runtime is frozen.
+        // Only fall back to the legacy queue hop when it declines.
+        if self.planner_can_advance() && self.advance_via_planner().await {
+            return;
+        }
+
         if !self.playlist.is_empty() {
             let _ = self.self_msg_tx.send(AudioThreadEventMessage::new(
                 "".into(),

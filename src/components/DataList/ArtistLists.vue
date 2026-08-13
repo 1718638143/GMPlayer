@@ -226,10 +226,7 @@ const toLikeArtist = (data) => {
 
 // 判断收藏还是取消
 const isLikeOrDislike = (id) => {
-  if (!user.getUserArtistLists.list[0]) {
-    return true;
-  }
-  return !user.getUserArtistLists.list.some((item) => item.id === id);
+  return !user.getUserArtistIds.has(Number(id));
 };
 
 onMounted(() => {

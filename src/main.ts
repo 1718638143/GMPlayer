@@ -6,7 +6,8 @@ import piniaPluginPersistedstate from "pinia-plugin-persistedstate";
 
 import App from "@/App.vue";
 import router from "@/router/index";
-import { audioPreheat, isTauri } from "@/utils/tauri/audioBridge";
+import { audioPreheat } from "@/utils/tauri/audio/bridge";
+import { isTauri } from "@/utils/tauri/core/runtime";
 import { installExternalLinkInterceptor } from "@/utils/openLink";
 
 // 全局样式

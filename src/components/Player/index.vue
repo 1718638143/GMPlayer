@@ -11,31 +11,7 @@
         @touchend.passive="handleMiniTouchEnd"
         @touchcancel="resetMiniTouch"
       >
-        <div class="slider">
-          <span>{{ music.getPlaySongTime.songTimePlayed }}</span>
-          <vue-slider
-            v-model="music.getPlaySongTime.barMoveDistance"
-            @drag-start="sliderDragStart"
-            @dragging="sliderDragging"
-            @drag-end="sliderDragEnd"
-            @change="songTimeSliderUpdate"
-            @click.stop
-            :tooltip="'active'"
-            :lazy="true"
-            :use-keyboard="false"
-          >
-            <template v-slot:tooltip>
-              <div class="slider-tooltip">
-                {{
-                  getSongPlayingTime(
-                    (music.getPlaySongTime.duration / 100) * music.getPlaySongTime.barMoveDistance,
-                  )
-                }}
-              </div>
-            </template>
-          </vue-slider>
-          <span>{{ music.getPlaySongTime.songTimeDuration }}</span>
-        </div>
+        <MiniPlayerProgress />
         <div class="all">
           <div class="data">
             <div class="pic" data-mobile-player-artwork @click.stop="handleMiniArtworkClick">
@@ -223,9 +199,15 @@
               <template #trigger>
                 <div
                   :class="music.showPlayList ? 'playlist open' : 'playlist'"
+                  role="button"
+                  tabindex="0"
+                  :aria-pressed="music.showPlayList"
+                  :aria-label="$t('general.name.playlists')"
                   @pointerdown.stop="armPlaylistToggle"
                   @pointercancel="clearPlaylistToggleIntent"
                   @click.stop="togglePlaylist"
+                  @keydown.enter.prevent="togglePlaylist"
+                  @keydown.space.prevent="togglePlaylist"
                 >
                   <n-icon size="30" :component="PlaylistPlayRound" />
                 </div>
@@ -290,7 +272,6 @@ import {
   PauseCircleFilled,
   SkipNextRound,
   SkipPreviousRound,
-  PlaylistPlayRound,
   VolumeOffRound,
   VolumeMuteRound,
   VolumeDownRound,
@@ -299,6 +280,7 @@ import {
   FavoriteBorderRound,
   FavoriteRound,
   PlaylistAddRound,
+  PlaylistPlayRound,
 } from "@vicons/material";
 import { PlayCycle, PlayOnce, ShuffleOne } from "@icon-park/vue-next";
 import { storeToRefs } from "pinia";
@@ -313,22 +295,23 @@ import {
   isNativeAdvanceHoldActiveFor,
   SoundManager,
 } from "@/utils/AudioContext";
-import { getSongPlayingTime } from "@/utils/timeTools";
 import { useRouter } from "vue-router";
 import { debounce } from "throttle-debounce";
 import { useI18n } from "vue-i18n";
 import { isTauri } from "@/utils/tauri";
-import { NativeRustSound, isAudioBackendRuntimeAvailable } from "@/utils/tauri/NativeRustSound";
-import { windowManager } from "@/utils/tauri/windowManager";
+import {
+  NativeRustSound,
+  isAudioBackendRuntimeAvailable,
+} from "@/utils/tauri/audio/nativeRustSound";
+import { windowManager } from "@/utils/tauri/window/manager";
 import {
   broadcastPlayerLyrics,
   broadcastPlayerSettings,
   broadcastPlayerState,
   broadcastPlayerTime,
   setupMainPlayerCommunication,
-} from "@/utils/tauri/playerCommunication";
+} from "@/utils/tauri/player/communication";
 import { useNativeMediaControls } from "@/composables/useNativeMediaControls";
-import VueSlider from "vue-slider-component";
 import AddPlaylist from "@/components/DataModal/AddPlaylist.vue";
 import PlayListDrawer from "@/components/DataModal/PlayListDrawer.vue";
 import ListenTogetherModal from "@/components/DataModal/ListenTogetherModal.vue";
@@ -336,7 +319,7 @@ import ListenTogetherStatus from "./ListenTogetherStatus.vue";
 import AllArtists from "@/components/DataList/AllArtists.vue";
 import OverflowMarquee from "@/components/Common/OverflowMarquee.vue";
 import BigPlayer from "./BigPlayer/index.vue";
-import "vue-slider-component/theme/default.css";
+import MiniPlayerProgress from "./MiniPlayerProgress.vue";
 import { shallowRef, watch } from "vue";
 import { parseLyricData as parseLyric } from "@/utils/LyricsProcessor";
 import { lyricFetcher } from "@/utils/lyricFetcher";
@@ -677,55 +660,6 @@ const renderIcon = (icon) => {
       },
     );
   };
-};
-
-// 歌曲进度条更新
-const isSliderDragging = ref(false);
-const pendingSliderPercent = ref(null);
-const normalizeSliderPercent = (val) => {
-  const raw = Array.isArray(val) ? val[0] : val;
-  const num = Number(raw);
-  if (!Number.isFinite(num)) return null;
-  return Math.max(0, Math.min(100, num));
-};
-const previewSliderTime = (percent) => {
-  const duration = music.getPlaySongTime?.duration;
-  if (!duration) return;
-  const currentTime = (duration / 100) * percent;
-  music.setPlaySongTime({
-    currentTime,
-    displayCurrentTime: currentTime,
-    duration,
-  });
-};
-const sliderDragStart = () => {
-  isSliderDragging.value = true;
-  pendingSliderPercent.value = normalizeSliderPercent(music.getPlaySongTime.barMoveDistance);
-};
-const sliderDragging = (val) => {
-  const percent = normalizeSliderPercent(val);
-  if (percent === null) return;
-  pendingSliderPercent.value = percent;
-  previewSliderTime(percent);
-};
-const sliderDragEnd = () => {
-  isSliderDragging.value = false;
-};
-const songTimeSliderUpdate = (val) => {
-  if (player.value && music.getPlaySongTime?.duration) {
-    const percent = normalizeSliderPercent(
-      isSliderDragging.value ? (pendingSliderPercent.value ?? val) : val,
-    );
-    if (percent === null) return;
-    isSliderDragging.value = false;
-    pendingSliderPercent.value = null;
-    const currentTime = (music.getPlaySongTime.duration / 100) * percent;
-    setSeek(player.value, currentTime);
-    // 一起听歌：发送进度跳转命令（房主和房客均可）
-    if (listenTogether.isInRoom) {
-      listenTogether.sendPlayCommand("seek", Math.floor(currentTime * 1000));
-    }
-  }
 };
 
 // 静音事件
@@ -1195,79 +1129,6 @@ watch(
     overflow: visible !important;
   }
 
-  .slider {
-    position: absolute;
-    top: -12px;
-    left: var(--player-slider-edge-inset, 0px);
-    right: var(--player-slider-edge-inset, 0px);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    z-index: 2;
-    opacity: var(--mobile-mini-player-chrome-opacity, var(--mobile-mini-player-ui-opacity, 1));
-    transform: translateY(var(--mobile-mini-player-ui-y, 0px));
-    will-change: opacity, transform;
-
-    @media (max-width: 640px) {
-      top: -8px;
-
-      > {
-        span {
-          display: none;
-        }
-      }
-    }
-
-    > {
-      span {
-        font-size: 12px;
-        white-space: nowrap;
-        background-color: var(--player-time-chip-bg);
-        outline: 1px solid var(--player-time-chip-border);
-        padding: 2px 8px;
-        border-radius: var(--radius-pill);
-        margin: 0 2px;
-      }
-    }
-
-    .vue-slider {
-      width: 100% !important;
-      height: 3px !important;
-      cursor: pointer;
-
-      .slider-tooltip {
-        font-size: 12px;
-        white-space: nowrap;
-        background-color: var(--player-time-chip-bg);
-        outline: 1px solid var(--player-time-chip-border);
-        padding: 2px 8px;
-        border-radius: var(--radius-pill);
-      }
-
-      :deep(.vue-slider-rail) {
-        background-color: var(--player-rail-color);
-        border-radius: var(--radius-pill);
-
-        .vue-slider-process {
-          background: linear-gradient(
-            90deg,
-            var(--player-accent-strong),
-            var(--player-accent-color)
-          );
-        }
-
-        .vue-slider-dot {
-          width: 12px !important;
-          height: 12px !important;
-        }
-
-        .vue-slider-dot-handle-focus {
-          box-shadow: 0px 0px 1px 2px var(--player-accent-color);
-        }
-      }
-    }
-  }
-
   .all {
     height: 100%;
     display: grid;
@@ -1542,6 +1403,12 @@ watch(
         display: flex;
         align-items: center;
         justify-content: center;
+
+        &:focus-visible {
+          outline: none;
+          border-radius: var(--radius-md);
+          box-shadow: var(--focus-ring);
+        }
 
         &.open {
           .n-icon {

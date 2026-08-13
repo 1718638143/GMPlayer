@@ -45,14 +45,24 @@ const RECYCLE_QUEUE_BLOCKS: usize = DEFAULT_QUEUE_BLOCKS + 4;
 // full ready queue without allocating even if the mixer is briefly descheduled.
 const PENDING_RECYCLE_BLOCKS: usize = DEFAULT_QUEUE_BLOCKS;
 const OUTPUT_INIT_TIMEOUT: Duration = Duration::from_secs(4);
-const PRODUCER_YIELD_RETRIES: u32 = 8;
-const PRODUCER_MIN_PARK_US: u64 = 100;
-// Steady-state playback keeps the output ring full, so the mixer producer
-// lives in this park-poll loop: the cap IS the wakeup cadence. 4ms ≈ 2-3
-// polls per freed ~10ms block instead of ~10, cutting wakeups ~4× under CPU
-// stress. Interrupts (seek/stop/generation bump) are re-checked after every
-// park, so those paths gain at most one cap of latency.
-const PRODUCER_MAX_PARK_US: u64 = 4_000;
+// Producers only ever block when the sink queue is *full*, which is the steady
+// state during playback: the consumer drains it in real time, so the slot we
+// are waiting for frees once the head block has played out. Waiting roughly
+// that long — instead of polling at a fixed cadence — collapses a refill into
+// one burst per wake. The wait is derived from the stream rate rather than a
+// constant so it self-tunes to the queue depth of each platform; Linux and
+// Android profit most, since their 48-block queues stay saturated and give the
+// widest safety margin. Two guards keep it safe: never sleep through more than
+// a few block periods, and never through more than a fraction of the audio
+// already queued behind the full sink. Interrupts do not pay for the longer
+// wait — seek/stop/flush unpark the producer, and every wake re-checks the
+// cancel flags before parking again.
+const PRODUCER_SPIN_RETRIES: u32 = 2;
+const PRODUCER_MIN_PARK_US: u64 = 250;
+const PRODUCER_MAX_PARK_US: u64 = 40_000;
+const PRODUCER_MAX_PARK_BLOCKS: u64 = 4;
+const PRODUCER_PARK_QUEUE_DIVISOR: u64 = 4;
+const DEFAULT_PRODUCER_SAMPLES_PER_SEC: u32 = 48_000 * 2;
 
 #[derive(Clone, Copy)]
 pub(crate) struct PushCancel<'a> {
@@ -175,6 +185,10 @@ pub struct OutputWriter {
     flush_epoch: Arc<AtomicU64>,
     queued_samples: Arc<AtomicUsize>,
     rendered_samples: Arc<AtomicU64>,
+    /// Interleaved samples the stream plays per second. Fixed once the device
+    /// config is known, and only used to size the producer's wait on a full
+    /// ring; a stale default merely makes that wait shorter.
+    samples_per_sec: u32,
     /// Spent mix blocks returned by the CPAL callback for reuse. Single
     /// consumer (the mixer) behind a `Mutex` so `OutputWriter` stays `Sync`
     /// while remaining cloneable; the lock is only ever taken off the audio
@@ -203,7 +217,7 @@ impl OutputWriter {
 
         let generation = self.generation.load(Ordering::Acquire);
         let flush_epoch = self.flush_epoch.load(Ordering::Acquire);
-        let mut retry_count = 0;
+        let mut wait = ProducerWait::new(self.samples_per_sec);
         loop {
             if cancel.is_cancelled()
                 || self.generation.load(Ordering::Acquire) != generation
@@ -232,9 +246,9 @@ impl OutputWriter {
                     return true;
                 }
                 Err(PushError::Full(returned)) => {
-                    saturating_sub(&self.queued_samples, block_len);
+                    let queued = saturating_sub(&self.queued_samples, block_len);
                     block = returned.samples;
-                    producer_retry_backoff(&mut retry_count);
+                    wait.backoff(block_len, queued);
                 }
             }
         }
@@ -372,6 +386,7 @@ pub fn open_output(
         flush_epoch: Arc::clone(&flush_epoch),
         queued_samples: Arc::clone(&queued_samples),
         rendered_samples: Arc::clone(&rendered_samples),
+        samples_per_sec: DEFAULT_PRODUCER_SAMPLES_PER_SEC,
         recycle_rx: Arc::new(Mutex::new(recycle_rx)),
     };
 
@@ -416,6 +431,12 @@ pub fn open_output(
             return Err("output thread exited during init".to_string());
         }
     };
+
+    // No clone of this writer exists yet — every consumer goes through
+    // `LowLatencyOutput::writer()` — so the negotiated stream rate can be
+    // stamped in here instead of being shared through another atomic.
+    let mut writer = writer;
+    writer.samples_per_sec = stream_samples_per_sec(config.sample_rate, config.channels);
 
     Ok(LowLatencyOutput {
         stream_stop_tx,
@@ -576,7 +597,9 @@ fn output_device_key_and_config(
             None
         }
     };
-    let platform_id = default_identity.then(platform::default_output_id).flatten();
+    let platform_id = default_identity
+        .then(|| platform::default_output_id(device))
+        .flatten();
     let device_signature = if default_identity && platform_id.is_none() {
         fallback_output_device_signature(host)
     } else {
@@ -596,12 +619,16 @@ fn fallback_output_device_signature(host: &cpal::Host) -> Option<u64> {
     let mut entries = Vec::new();
 
     for device in devices {
-        let name = device_name(&device);
-        let config = device
-            .default_output_config()
-            .ok()
-            .map(|config| OutputConfigKey::from_config(&config));
-        entries.push(format!("{name}\0{config:?}"));
+        // Identity only. This runs on the periodic default-device poll, and
+        // `default_output_config()` is not free everywhere: CPAL's ALSA host
+        // answers it with a `snd_pcm_open()` plus a full hardware-parameter
+        // probe, so asking every device would open every PCM every poll. The
+        // device the poll actually cares about is the resolved default, whose
+        // config is already carried in `OutputDeviceKey::default_config`.
+        entries.push(match device.id() {
+            Ok(id) => id.to_string(),
+            Err(_) => device_name(&device),
+        });
     }
 
     entries.sort_unstable();
@@ -866,25 +893,87 @@ fn recoverable_stream_error_bit(err: &cpal::Error) -> Option<u8> {
     }
 }
 
-fn producer_retry_backoff(retry_count: &mut u32) {
-    if *retry_count < PRODUCER_YIELD_RETRIES {
-        *retry_count += 1;
-        thread::yield_now();
-        return;
-    }
-
-    let shift = (*retry_count - PRODUCER_YIELD_RETRIES).min(6);
-    let park_us = (PRODUCER_MIN_PARK_US << shift).min(PRODUCER_MAX_PARK_US);
-    *retry_count = (*retry_count).saturating_add(1);
-    thread::park_timeout(Duration::from_micros(park_us));
+/// Interleaved samples one second of playback consumes on this stream.
+pub(crate) fn stream_samples_per_sec(sample_rate: u32, channels: u16) -> u32 {
+    (sample_rate.max(1) as u64 * channels.max(1) as u64).min(u32::MAX as u64) as u32
 }
 
-fn saturating_sub(counter: &AtomicUsize, amount: usize) {
+/// Backoff state for one `push_block` call that found its sink queue full.
+///
+/// A full queue means the consumer is playing out audio we already handed it,
+/// so the wait is a known quantity: one block period. `ProducerWait` spins
+/// briefly for the case where the consumer is draining right now on another
+/// core, then parks for about that period, doubling while the queue stays
+/// full. Callers must re-check their cancel/generation flags after every
+/// `backoff()` — control threads unpark the producer, so a park can also end
+/// early because playback was interrupted.
+#[derive(Clone, Copy)]
+pub(crate) struct ProducerWait {
+    samples_per_sec: u32,
+    retries: u32,
+}
+
+impl ProducerWait {
+    pub(crate) fn new(samples_per_sec: u32) -> Self {
+        Self {
+            samples_per_sec: samples_per_sec.max(1),
+            retries: 0,
+        }
+    }
+
+    pub(crate) fn backoff(&mut self, block_samples: usize, queued_samples: usize) {
+        let retries = self.retries;
+        self.retries = retries.saturating_add(1);
+        if retries < PRODUCER_SPIN_RETRIES {
+            thread::yield_now();
+            return;
+        }
+
+        let park_us = producer_park_us(
+            self.samples_per_sec,
+            block_samples,
+            queued_samples,
+            retries - PRODUCER_SPIN_RETRIES,
+        );
+        thread::park_timeout(Duration::from_micros(park_us));
+    }
+}
+
+fn producer_park_us(
+    samples_per_sec: u32,
+    block_samples: usize,
+    queued_samples: usize,
+    shift: u32,
+) -> u64 {
+    let rate = samples_per_sec.max(1) as u64;
+    let playback_us = |samples: usize| {
+        (samples as u64)
+            .saturating_mul(1_000_000)
+            .saturating_div(rate)
+    };
+
+    let block_us = playback_us(block_samples).max(PRODUCER_MIN_PARK_US);
+    // A full queue holds many blocks, so a fraction of what it holds can never
+    // be long enough to let it run dry while we sleep. This also keeps the wait
+    // honest when the queue is shallow or its counter reads low.
+    let queued_ceiling = playback_us(queued_samples) / PRODUCER_PARK_QUEUE_DIVISOR;
+    let ceiling = PRODUCER_MAX_PARK_US
+        .min(block_us.saturating_mul(PRODUCER_MAX_PARK_BLOCKS))
+        .min(queued_ceiling)
+        .max(PRODUCER_MIN_PARK_US);
+
+    block_us
+        .saturating_mul(1u64 << shift.min(3))
+        .clamp(PRODUCER_MIN_PARK_US, ceiling)
+}
+
+/// Subtract without underflowing, returning the counter value afterwards.
+fn saturating_sub(counter: &AtomicUsize, amount: usize) -> usize {
     let mut current = counter.load(Ordering::Relaxed);
     loop {
         let next = current.saturating_sub(amount);
         match counter.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return,
+            Ok(_) => return next,
             Err(observed) => current = observed,
         }
     }
@@ -921,6 +1010,7 @@ mod tests {
             flush_epoch: Arc::clone(&flush_epoch),
             queued_samples: Arc::clone(&queued_samples),
             rendered_samples: Arc::new(AtomicU64::new(0)),
+            samples_per_sec: DEFAULT_PRODUCER_SAMPLES_PER_SEC,
             recycle_rx: Arc::new(Mutex::new(recycle_rx)),
         };
         (
@@ -1049,5 +1139,68 @@ mod tests {
             cpal::ErrorKind::DeviceNotAvailable,
         ))
         .is_none());
+    }
+
+    // 48 kHz stereo: one 512-frame mix block is 1024 interleaved samples and
+    // ~10.7 ms of audio.
+    const STEREO_48K: u32 = 48_000 * 2;
+    const BLOCK_SAMPLES: usize = 512 * 2;
+
+    #[test]
+    fn producer_parks_for_about_the_block_it_waits_on() {
+        // Linux/Android profile: a full 48-block ring holds ~512 ms.
+        let park = producer_park_us(STEREO_48K, BLOCK_SAMPLES, BLOCK_SAMPLES * 48, 0);
+
+        assert!(
+            (9_000..=12_000).contains(&park),
+            "expected ~one 10.7ms block period, got {park}us"
+        );
+    }
+
+    #[test]
+    fn producer_park_never_outlasts_a_quarter_of_the_queued_audio() {
+        // Desktop profile: a full 8-block queue holds ~85 ms, so no escalation
+        // may sleep past ~21 ms.
+        let queued = BLOCK_SAMPLES * 8;
+        let quarter_us = (queued as u64 * 1_000_000 / STEREO_48K as u64) / 4;
+
+        for shift in 0..8 {
+            let park = producer_park_us(STEREO_48K, BLOCK_SAMPLES, queued, shift);
+            assert!(
+                park <= quarter_us.max(PRODUCER_MIN_PARK_US),
+                "shift {shift} slept {park}us of a {quarter_us}us budget"
+            );
+        }
+    }
+
+    #[test]
+    fn producer_park_escalation_stays_inside_the_absolute_cap() {
+        let deep_queue = BLOCK_SAMPLES * 48;
+
+        let first = producer_park_us(STEREO_48K, BLOCK_SAMPLES, deep_queue, 0);
+        let escalated = producer_park_us(STEREO_48K, BLOCK_SAMPLES, deep_queue, 1);
+        let saturated = producer_park_us(STEREO_48K, BLOCK_SAMPLES, deep_queue, 8);
+
+        assert!(escalated > first);
+        assert_eq!(saturated, PRODUCER_MAX_PARK_US);
+    }
+
+    #[test]
+    fn producer_park_falls_back_to_fast_retries_without_queued_audio() {
+        // A full queue that reports nothing queued is an accounting slip, not
+        // permission to sleep: keep retrying at the floor.
+        assert_eq!(
+            producer_park_us(STEREO_48K, BLOCK_SAMPLES, 0, 3),
+            PRODUCER_MIN_PARK_US
+        );
+        assert_eq!(producer_park_us(0, 0, 0, 0), PRODUCER_MIN_PARK_US);
+    }
+
+    #[test]
+    fn queued_sample_subtraction_reports_the_remaining_depth() {
+        let counter = AtomicUsize::new(1_024);
+
+        assert_eq!(saturating_sub(&counter, 512), 512);
+        assert_eq!(saturating_sub(&counter, 4_096), 0);
     }
 }

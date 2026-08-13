@@ -194,11 +194,7 @@ const albumDescShow = ref(false);
 
 // 判断收藏还是取消
 const isLikeOrDislike = (id) => {
-  const playlists = user.getUserAlbumLists.list;
-  if (playlists.length) {
-    return !playlists.some((item) => item.id === Number(id));
-  }
-  return true;
+  return !user.getUserAlbumIds.has(Number(id));
 };
 
 // 专辑下拉菜单数据

@@ -171,6 +171,11 @@ impl AudioPlayer {
                     if should_start {
                         self.start_playing_song(true, *initial_position, *load_request_id)
                             .await?;
+                        // The frontend chose this track. Its identity is not
+                        // derivable from the transport payload, so drop the
+                        // stale anchor and let the manifest the frontend
+                        // publishes next re-anchor the cursor authoritatively.
+                        self.invalidate_planner_anchor();
                     }
                 }
                 AudioThreadMessage::SetAnalysis { enabled } => {
@@ -308,6 +313,21 @@ impl AudioPlayer {
                     }
                     self.complete_native_automix(*current_index, *position)
                         .await;
+                }
+                AudioThreadMessage::SetNativeManifest { manifest } => {
+                    self.apply_native_manifest(manifest.clone()).await;
+                }
+                AudioThreadMessage::ClearNativeManifest { revision } => {
+                    self.clear_native_manifest(*revision).await;
+                }
+                AudioThreadMessage::SetNativeResolverConfig { config } => {
+                    self.set_native_resolver_config(config.clone());
+                }
+                AudioThreadMessage::SetNativePlannerEnabled { enabled } => {
+                    self.set_native_planner_enabled(*enabled).await;
+                }
+                AudioThreadMessage::SyncNativePlannerStatus => {
+                    self.emit_planner_status().await;
                 }
             }
         }

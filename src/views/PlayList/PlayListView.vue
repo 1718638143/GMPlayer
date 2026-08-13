@@ -272,20 +272,12 @@ const normalizePlaylistId = (id: string | number | string[]) =>
 
 // 判断收藏还是取消
 const isLikeOrDislike = (id: string | number | string[]) => {
-  const playlists = user.getUserPlayLists.like;
-  if (playlists.length) {
-    return !playlists.some((item) => item.id === Number(id));
-  }
-  return true;
+  return !user.getLikedPlayListIds.has(Number(id));
 };
 
 // 判断是否可删除
 const isCanDelete = (id: string | number | string[]) => {
-  const playlists = user.getUserPlayLists.own;
-  if (playlists.length) {
-    return playlists.some((item) => item.id === Number(id));
-  }
-  return false;
+  return user.getOwnPlayListIds.has(Number(id));
 };
 
 // 歌单下拉菜单数据

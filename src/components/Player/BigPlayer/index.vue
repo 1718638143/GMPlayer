@@ -52,7 +52,6 @@
                 :coverImageUrl="coverImageUrl"
                 :albumImageUrl="setting.albumImageUrl"
                 :flowSpeed="setting.flowSpeed"
-                :lowFreqVolume="computedLowFreqVolume"
                 :staticMode="mobileBackgroundStatic"
               />
             </Motion>
@@ -111,7 +110,6 @@
           :coverImageUrl="coverImageUrl"
           :albumImageUrl="setting.albumImageUrl"
           :flowSpeed="setting.flowSpeed"
-          :lowFreqVolume="computedLowFreqVolume"
           :staticMode="!music.showBigPlayer"
         />
 
@@ -169,6 +167,7 @@ import { useResponsiveLayout } from "@/composables/useResponsiveLayout";
 import { usePwaThemeColor } from "@/composables/usePwaThemeColor";
 import { useBigPlayerCommon } from "@/composables/useBigPlayerCommon";
 import { useMobileCoverFrame } from "@/composables/useMobileCoverFrame";
+import { prefersReducedMotion } from "@/utils/reducedMotion";
 
 // 导入子组件
 import BigPlayerBackground from "./BigPlayerBackground.vue";
@@ -194,7 +193,6 @@ const {
   songName,
   remainingTime,
   hasLyrics,
-  computedLowFreqVolume,
   lrcMouseStatus,
   lyricsScroll,
   lrcAllLeave,
@@ -853,6 +851,9 @@ const desktopDragBlockSelector = [
   ".desktop-toggle-controls",
   ".desktop-queue-panel",
   ".desktop-comment-panel",
+  ".immersive-dock",
+  ".immersive-lyrics",
+  ".immersive-comment-stage",
   ".amll-close-action",
   ".control-thumb",
   ".controls",
@@ -1158,6 +1159,11 @@ const initMobileElements = () => {
 const animateTip = (isVisible: boolean) => {
   const tipEl = desktopLayoutRef.value?.tipRef;
   if (!tipEl) return;
+  // GSAP 不吃 CSS 的 prefers-reduced-motion 兜底，这里显式跳到终态
+  if (prefersReducedMotion()) {
+    gsap.set(tipEl, { opacity: isVisible ? 1 : 0, y: 0 });
+    return;
+  }
   if (isVisible) {
     gsap.fromTo(
       tipEl,
@@ -1182,6 +1188,13 @@ const animatePlayerIn = () => {
   if (!bigPlayerRef.value || isMobile.value) return;
   const leftEl = desktopLayoutRef.value?.leftContentRef;
   const rightEl = desktopLayoutRef.value?.rightContentRef;
+  // 同上：减弱动态效果时直接呈现终态，不做缩放淡入
+  if (prefersReducedMotion()) {
+    [leftEl, rightEl].forEach((el) => {
+      if (el) gsap.set(el, { clearProps: "opacity,transform,transition" });
+    });
+    return;
+  }
   if (leftEl) {
     gsap.set(leftEl, { transition: "none" });
     gsap.fromTo(

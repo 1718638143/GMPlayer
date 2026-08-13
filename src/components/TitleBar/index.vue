@@ -16,9 +16,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, type Component } from "vue";
 import { musicStore, settingStore } from "@/store";
-import { isTauri } from "@/utils/tauri/windowManager";
+import { isTauri } from "@/utils/tauri/core/runtime";
 import { getDesktopEnvironment, isMobile, type DesktopEnvironment } from "@/utils/tauri";
-import type { WindowLabel } from "@/utils/tauri/types";
+import type { WindowLabel } from "@/utils/tauri/window/types";
 import { useOsTheme } from "naive-ui";
 import WindowControls from "./WindowControls.vue";
 

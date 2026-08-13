@@ -1,54 +1,5 @@
+import { invoke, listen } from "../core/runtime";
 import type { WindowConfig, WindowLabel, WindowState } from "./types";
-
-declare global {
-  interface Window {
-    __TAURI__?: {
-      core: {
-        invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-      };
-      event: {
-        listen: <T>(event: string, handler: (event: { payload: T }) => void) => Promise<() => void>;
-        emit: (event: string, payload?: unknown) => Promise<void>;
-        emitTo: (target: string, event: string, payload?: unknown) => Promise<void>;
-      };
-    };
-    open_taskbar_lyric_devtools?: () => Promise<void>;
-    open_window_devtools?: (label?: WindowLabel) => Promise<void>;
-  }
-}
-
-/**
- * Check if the app is running inside Tauri.
- */
-export function isTauri(): boolean {
-  return "__TAURI__" in window;
-}
-
-/**
- * Check whether the app is running in Tauri on Windows.
- */
-export function isWindowsTauri(): boolean {
-  if (!isTauri()) return false;
-  const platform = window.navigator?.platform ?? "";
-  const userAgent = window.navigator?.userAgent ?? "";
-  return /Win/i.test(platform) || /Windows/i.test(userAgent);
-}
-
-/**
- * Invoke a Tauri command. Returns null if not in Tauri.
- */
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
-  if (!isTauri()) return null;
-  return window.__TAURI__!.core.invoke<T>(cmd, args);
-}
-
-/**
- * Listen to a Tauri event. Returns a no-op unlisten if not in Tauri.
- */
-async function listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
-  if (!isTauri()) return () => {};
-  return window.__TAURI__!.event.listen<T>(event, (e) => handler(e.payload));
-}
 
 export const windowManager = {
   /**

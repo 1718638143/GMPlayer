@@ -3,7 +3,7 @@ import type {
   AudioThreadEventMessage,
   AudioThreadMessage,
   SongData,
-} from "./audioBridge";
+} from "../protocol";
 
 interface WasmAudioBackendBinding {
   sendMessageJson(envelopeJson: string): string;

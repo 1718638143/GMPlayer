@@ -15,9 +15,9 @@
  * - personal FM / listen-together: no prefill (transitions need live JS)
  */
 
-import { isTauri } from "@/utils/tauri/audioBridge";
-import type { SongData as QueueSongData } from "@/utils/tauri/audioBridge";
-import { NativeRustSound } from "@/utils/tauri/NativeRustSound";
+import { isTauri } from "@/utils/tauri/core/runtime";
+import type { SongData as QueueSongData } from "@/utils/tauri/audio/protocol";
+import { NativeRustSound } from "@/utils/tauri/audio/nativeRustSound";
 import { resolveSongUrl } from "./resolveSongUrl";
 // Import stores directly to avoid circular dependency through barrel exports
 import useMusicDataStore from "@/store/musicData";
