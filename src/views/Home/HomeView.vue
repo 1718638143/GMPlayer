@@ -141,6 +141,7 @@ import PaPersonalFm from "@/components/Personalized/PaPersonalFm.vue";
 import PaRadar from "@/components/Personalized/PaRadar.vue";
 import { musicStore, settingStore } from "@/store";
 import type { SongData } from "@/store/musicTypes";
+import { asRawEntry } from "@/utils/rawEntry";
 import { formatNumber, getSongTime } from "@/utils/timeTools";
 
 type StreamItemType = "playlist" | "album" | "artist";
@@ -296,7 +297,7 @@ const getStreamData = async () => {
     newSongsData.value = (newSongs.value.result ?? []).map((item: any, index: number) => {
       const rawSong = item.song ?? item;
       const album = rawSong.album ?? rawSong.al ?? {};
-      return {
+      return asRawEntry({
         id: item.id ?? rawSong.id,
         name: item.name ?? rawSong.name,
         artist: rawSong.artists ?? rawSong.ar ?? [],
@@ -309,7 +310,7 @@ const getStreamData = async () => {
         fee: rawSong.fee ?? 0,
         mv: rawSong.mvid ?? rawSong.mv ?? null,
         num: index + 1,
-      };
+      });
     });
   }
   isLoading.value = false;

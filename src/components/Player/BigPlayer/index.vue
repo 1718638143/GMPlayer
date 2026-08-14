@@ -115,7 +115,7 @@
 
         <BigPlayerTopBar
           :showLyricSetting="setting.showLyricSetting"
-          @openSettings="LyricSettingRef.openLyricSetting()"
+          @openSettings="openLyricSetting()"
         />
 
         <DesktopPlayerLayout
@@ -146,7 +146,9 @@
       </template>
 
       <!-- 共用组件 -->
-      <LyricSetting ref="LyricSettingRef" />
+      <!-- 首次点开设置才拉取：它经 SettingsWorkspace 拖进整个 n-color-picker 分包，
+           而它只是个模态框，不参与大播放器的开合动画。 -->
+      <component :is="LyricSettingComponent" v-if="LyricSettingComponent" ref="LyricSettingRef" />
     </div>
   </Teleport>
 </template>
@@ -154,10 +156,9 @@
 <script setup lang="ts">
 import { musicStore, settingStore, siteStore } from "@/store";
 import Spectrum from "../Spectrum.vue";
-import LyricSetting from "@/components/DataModal/LyricSetting.vue";
 import { storeToRefs } from "pinia";
 import gsap from "gsap";
-import { onMounted, nextTick, watch, ref, computed, onBeforeUnmount } from "vue";
+import { onMounted, nextTick, watch, ref, computed, onBeforeUnmount, shallowRef } from "vue";
 import { Motion, animate, useMotionValue, type MotionValue } from "motion-v";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "../icons/icon-animations.css";
@@ -362,6 +363,17 @@ const forcePlaying = ref(true);
 const actualPlayingProp = computed(() => forcePlaying.value || music.getPlayState);
 const menuShow = ref(false);
 const LyricSettingRef = ref(null);
+// 显式 import() 而不是 defineAsyncComponent：这里要靠 ref 调命令式的
+// openLyricSetting()，需要一个「已解析且已挂载」的确定时机，
+// 而 defineAsyncComponent 解析完成的时刻是拿不到的。
+const LyricSettingComponent = shallowRef<any>(null);
+const openLyricSetting = async () => {
+  if (!LyricSettingComponent.value) {
+    LyricSettingComponent.value = (await import("@/components/DataModal/LyricSetting.vue")).default;
+    await nextTick();
+  }
+  (LyricSettingRef.value as any)?.openLyricSetting();
+};
 
 const clamp = (value: number, min = 0, max = 1) => Math.min(max, Math.max(min, value));
 const mix = (from: number, to: number, progress: number) => from + (to - from) * progress;

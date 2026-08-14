@@ -90,6 +90,7 @@
 import { getCloud, upCloudSong } from "@/api/user";
 import { useRouter } from "vue-router";
 import { settingStore } from "@/store";
+import { asRawEntry } from "@/utils/rawEntry";
 import { getSongTime } from "@/utils/timeTools";
 import { BackupRound } from "@vicons/material";
 import { useI18n } from "vue-i18n";
@@ -130,16 +131,18 @@ const getCloudData = (limit = 30, offset = 0, scroll = true) => {
     // 全部歌曲
     if (res.data) {
       res.data.forEach((v, i) => {
-        cloudData.value.push({
-          id: v.songId,
-          num: i + 1 + (pageNumber.value - 1) * pagelimit.value,
-          name: v.simpleSong.name,
-          artist: v.simpleSong.ar,
-          album: v.simpleSong.al,
-          alia: v.simpleSong.alia,
-          mv: v.simpleSong.mv,
-          time: getSongTime(v.simpleSong.dt),
-        });
+        cloudData.value.push(
+          asRawEntry({
+            id: v.songId,
+            num: i + 1 + (pageNumber.value - 1) * pagelimit.value,
+            name: v.simpleSong.name,
+            artist: v.simpleSong.ar,
+            album: v.simpleSong.al,
+            alia: v.simpleSong.alia,
+            mv: v.simpleSong.mv,
+            time: getSongTime(v.simpleSong.dt),
+          }),
+        );
       });
     } else {
       $message.error(t("general.message.acquisitionFailed"));

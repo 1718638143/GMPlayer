@@ -35,6 +35,7 @@ import {
   type PlaySongTime,
   type SongData,
 } from "./musicTypes";
+import { asRawEntries, asRawEntry } from "@/utils/rawEntry";
 
 declare const $message: any;
 declare const $player: any;
@@ -318,7 +319,7 @@ const useMusicDataStore = defineStore("musicData", {
         getPersonalFm().then((res: any) => {
           if (res.data[0]) {
             const data = res.data[2] || res.data[0];
-            const fmData: SongData = {
+            const fmData: SongData = asRawEntry({
               id: data.id,
               name: data.name,
               artist: data.artists,
@@ -328,7 +329,7 @@ const useMusicDataStore = defineStore("musicData", {
               fee: data.fee,
               pc: data.pc ? data.pc : null,
               mv: data.mvid,
-            };
+            });
             if (songName && songName === fmData.name) {
               this.setFmDislike(fmData.id);
             } else {
@@ -440,7 +441,8 @@ const useMusicDataStore = defineStore("musicData", {
       const autoMix = getAutoMixEngine();
       if (autoMix.isHandoffActive()) autoMix.cancelCrossfade();
       cancelNativeQueuePrefill();
-      this.persistData.playlists = value.slice();
+      // asRawEntries 顺带完成 slice 的拷贝职责：新数组 + 逐项标记为 raw。
+      this.persistData.playlists = asRawEntries(value);
       this.persistData.playSongIndex = Math.min(
         Math.max(0, this.persistData.playSongIndex),
         Math.max(0, this.persistData.playlists.length - 1),
@@ -460,17 +462,19 @@ const useMusicDataStore = defineStore("musicData", {
         this.dailySongsData = [];
         this.dailySongsDate = date;
         value.forEach((v) => {
-          this.dailySongsData.push({
-            id: v.id,
-            name: v.name,
-            artist: v.ar,
-            album: v.al,
-            alia: v.alia,
-            time: getSongTime(v.dt),
-            fee: v.fee,
-            pc: v.pc ? v.pc : null,
-            mv: v.mv ? v.mv : null,
-          });
+          this.dailySongsData.push(
+            asRawEntry({
+              id: v.id,
+              name: v.name,
+              artist: v.ar,
+              album: v.al,
+              alia: v.alia,
+              time: getSongTime(v.dt),
+              fee: v.fee,
+              pc: v.pc ? v.pc : null,
+              mv: v.mv ? v.mv : null,
+            }),
+          );
         });
       }
     },
@@ -708,7 +712,7 @@ const useMusicDataStore = defineStore("musicData", {
           this.checkpointPlaySongTime(true);
         }
       } else {
-        this.persistData.playlists.push(value);
+        this.persistData.playlists.push(asRawEntry(value));
         this.commitPlaySongIndex(this.persistData.playlists.length - 1);
       }
       publishNativeManifest();
@@ -746,7 +750,7 @@ const useMusicDataStore = defineStore("musicData", {
         if (insertIndex <= this.persistData.playSongIndex) this.persistData.playSongIndex++;
       } else {
         const insertIndex = insertAfterIndex + 1;
-        this.persistData.playlists.splice(insertIndex, 0, value);
+        this.persistData.playlists.splice(insertIndex, 0, asRawEntry(value));
         if (insertIndex <= this.persistData.playSongIndex) this.persistData.playSongIndex++;
       }
       // 已 prepare 但尚未发声的过渡指向的是旧的「下一首」，插队后必须作废，
@@ -855,7 +859,7 @@ const useMusicDataStore = defineStore("musicData", {
           this.persistData.playHistory.splice(index, 1);
         }
         if (this.persistData.playHistory.length > 100) this.persistData.playHistory.pop();
-        this.persistData.playHistory.unshift(data);
+        this.persistData.playHistory.unshift(asRawEntry(data));
       }
     },
 

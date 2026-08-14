@@ -9,6 +9,7 @@ import {
 } from "@/api/user";
 import { formatNumber, getLongTime } from "@/utils/timeTools";
 import getLanguageData from "@/utils/getLanguageData";
+import { asRawEntry } from "@/utils/rawEntry";
 
 declare const $message: any;
 
@@ -300,24 +301,28 @@ const useUserDataStore = defineStore("userData", {
         for (let i = 0; i < playlist.length; i++) {
           const v = playlist[i];
           if (v.creator?.userId === userId) {
-            own.push({
-              id: v.id,
-              cover: v.coverImgUrl,
-              name: v.name,
-              artist: v.creator,
-              desc: v.description,
-              tags: v.tags,
-              playCount: formatNumber(v.playCount),
-              trackCount: v.trackCount,
-            });
+            own.push(
+              asRawEntry({
+                id: v.id,
+                cover: v.coverImgUrl,
+                name: v.name,
+                artist: v.creator,
+                desc: v.description,
+                tags: v.tags,
+                playCount: formatNumber(v.playCount),
+                trackCount: v.trackCount,
+              }),
+            );
           } else {
-            like.push({
-              id: v.id,
-              cover: v.coverImgUrl,
-              name: v.name,
-              artist: v.creator,
-              playCount: formatNumber(v.playCount),
-            });
+            like.push(
+              asRawEntry({
+                id: v.id,
+                cover: v.coverImgUrl,
+                name: v.name,
+                artist: v.creator,
+                playCount: formatNumber(v.playCount),
+              }),
+            );
           }
         }
         this.userPlayLists = { isLoading: false, has: true, own, like };
@@ -345,7 +350,7 @@ const useUserDataStore = defineStore("userData", {
         const list: ArtistItem[] = [];
         for (let i = 0; i < source.length; i++) {
           const v = source[i];
-          list.push({ id: v.id, name: v.name, cover: v.img1v1Url, size: v.musicSize });
+          list.push(asRawEntry({ id: v.id, name: v.name, cover: v.img1v1Url, size: v.musicSize }));
         }
         this.userArtistLists = { isLoading: false, has: true, list };
         return true;
@@ -378,13 +383,15 @@ const useUserDataStore = defineStore("userData", {
           if (!source?.length) continue;
           for (let i = 0; i < source.length; i++) {
             const v = source[i];
-            list.push({
-              id: v.id,
-              cover: v.picUrl,
-              name: v.name,
-              artist: v.artists,
-              time: getLongTime(v.subTime),
-            });
+            list.push(
+              asRawEntry({
+                id: v.id,
+                cover: v.picUrl,
+                name: v.name,
+                artist: v.artists,
+                time: getLongTime(v.subTime),
+              }),
+            );
           }
         }
         this.userAlbum = { isLoading: false, has: true, list };
