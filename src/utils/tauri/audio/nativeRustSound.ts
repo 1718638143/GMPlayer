@@ -27,6 +27,7 @@ import type {
   DisplayAudioInfo,
   NativePlannerStatus,
   SongData,
+  TrackIdentity,
 } from "./protocol";
 import {
   getAudioBackendTransport,
@@ -179,6 +180,14 @@ export class NativeRustSound implements ISound {
    * advance until it is cleared or exhausted. */
   private _nativePlannerActive: boolean = false;
   private _nativePlannerStatus: NativePlannerStatus | null = null;
+  /** Identity + index of the most recent backend-initiated planner advance,
+   * retained until adoption consumes it. This is the only reliable key for
+   * reconciling a planner advance: the backend resolves its own URLs, so the
+   * `local:<url>` prefill registry cannot map them back to a song. */
+  private _lastPlannerAdvance: {
+    identity: TrackIdentity;
+    playlistIndex: number;
+  } | null = null;
   /** True between AudioPlayFinished and the adoption of the backend-initiated
    * advance (LoadAudio for the next track) — the 'end' event is suppressed
    * while pending and re-emitted by the fallback if the advance never lands. */
@@ -684,11 +693,18 @@ export class NativeRustSound implements ISound {
       case "nativePlannerAdvanced": {
         // The backend picked and started the next track by itself. Adoption
         // still runs through the existing loadAudio/syncStatus path — this
-        // event only carries the stable identity that path cannot infer from
-        // a re-resolved CDN URL.
+        // event carries the stable identity that path cannot infer from a
+        // re-resolved CDN URL, so retain it: the `local:<url>` prefill
+        // registry can never match a URL the Rust resolver produced, which
+        // would otherwise leave the reported index as the only (unverified)
+        // reconciliation key.
         this._adoptNextBackendMusicId = true;
         this._nativeAutoMixSyncPending = true;
         this._state.currentPlayIndex = evt.data.playlistIndex;
+        this._lastPlannerAdvance = {
+          identity: evt.data.identity,
+          playlistIndex: evt.data.playlistIndex,
+        };
         break;
       }
 
@@ -979,6 +995,20 @@ export class NativeRustSound implements ISound {
   /** Last planner status the backend reported, or null before the first event. */
   getNativePlannerStatus(): NativePlannerStatus | null {
     return this._nativePlannerStatus;
+  }
+
+  /**
+   * Take the pending planner-advance identity, clearing it.
+   *
+   * Consuming rather than peeking is deliberate: a retained identity must not
+   * be reused to reconcile a *later* transition that the planner did not
+   * drive (manual selection, AutoMix, JS-driven end), which would reintroduce
+   * the same displayed-vs-playing mismatch in the opposite direction.
+   */
+  takePlannerAdvance(): { identity: TrackIdentity; playlistIndex: number } | null {
+    const advance = this._lastPlannerAdvance;
+    this._lastPlannerAdvance = null;
+    return advance;
   }
 
   private _beginNativeAdvanceAdoption(): void {
@@ -1333,6 +1363,7 @@ export class NativeRustSound implements ISound {
     this._nativeAdvancePending = false;
     this._nativeAdvanceWindowApplied = false;
     this._nativePlannerActive = false;
+    this._lastPlannerAdvance = null;
     this._clearNoFFTWarning();
     if (this._unlistenTransport) {
       try {

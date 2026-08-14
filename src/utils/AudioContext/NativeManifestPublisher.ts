@@ -64,6 +64,8 @@ const nextRevision = (): number => {
 
 /** Last published fingerprint, to skip redundant IPC on unrelated store churn. */
 let lastFingerprint = "";
+let publishScheduled = false;
+let pendingForce = false;
 
 /**
  * Adopt a revision the backend reports. Covers the case where our persisted
@@ -114,9 +116,6 @@ const toIdentity = (song: SongData): TrackIdentity | null => {
   return { provider: "netease", id: String(id) };
 };
 
-const identityKey = (identity: TrackIdentity): string =>
-  identity.provider === "local" ? `local-file:${identity.path}` : `netease:${identity.id}`;
-
 /**
  * Build the traversal order for the current mode.
  *
@@ -150,11 +149,65 @@ const buildOrder = (length: number, cursorPosition: number, mode: string): numbe
 };
 
 /**
- * Publish the current playlist as a manifest. Cheap and idempotent: safe to
- * call on any list/mode/cursor change. Skips IPC when nothing material moved.
+ * Publish the current playlist as a manifest.
+ *
+ * Coalesced: callers fire this from many independent store mutations (adding a
+ * song, moving the cursor, changing mode), and a single user action commonly
+ * triggers several in one tick. Only the last one in a tick does any work, and
+ * `force` is sticky across the batch so a forced publish is never swallowed by
+ * a plain one scheduled after it.
  */
 export const publishNativeManifest = (options: { force?: boolean } = {}): void => {
   if (!isTauri()) return;
+  pendingForce ||= options.force === true;
+  if (publishScheduled) return;
+  publishScheduled = true;
+  // Microtask, not a timer: the manifest still lands within the same task that
+  // mutated the store, so nothing can observe a stale backend cursor.
+  queueMicrotask(flushNativeManifest);
+};
+
+/**
+ * Cheap change probe.
+ *
+ * Runs over the playlist *without allocating* the entry objects, so the common
+ * "nothing material moved" case costs one pass and no garbage. Previously the
+ * dedup happened only after building every entry (plus a 3-allocation artist
+ * join per song) and an N-element fingerprint string — i.e. the expensive part
+ * ran even when the result was discarded.
+ *
+ * Two independent 32-bit hashes are combined rather than one: a collision here
+ * means a skipped publish, which would leave the backend planning on a stale
+ * list, so ~2^-64 is the right risk level, whereas a single 32-bit hash is not.
+ */
+const playlistSignature = (
+  playlists: SongData[],
+  mode: string,
+  cursorSongId: number | null | undefined,
+): string => {
+  let h1 = 0x811c9dc5;
+  let h2 = 5381;
+  let counted = 0;
+  for (let index = 0; index < playlists.length; index++) {
+    const id = Number(playlists[index]?.id);
+    // Mirror `toIdentity`: unplannable songs are omitted from entries, so they
+    // must not contribute to the signature either.
+    if (!Number.isFinite(id) || id <= 0) continue;
+    counted++;
+    h1 = Math.imul(h1 ^ id, 0x01000193) >>> 0;
+    h1 = Math.imul(h1 ^ index, 0x01000193) >>> 0;
+    h2 = ((Math.imul(h2, 33) ^ id) >>> 0) + index;
+    h2 >>>= 0;
+  }
+  const seed = mode === "random" ? randomSeed : 0;
+  return `${mode}|${seed}|${cursorSongId ?? "?"}|${counted}|${h1.toString(36)}:${h2.toString(36)}`;
+};
+
+const flushNativeManifest = (): void => {
+  publishScheduled = false;
+  const force = pendingForce;
+  pendingForce = false;
+
   const sound = window.$player;
   if (!(sound instanceof NativeRustSound) || sound.isDestroyed()) return;
 
@@ -177,6 +230,10 @@ export const publishNativeManifest = (options: { force?: boolean } = {}): void =
   const entries: NativeManifestEntry[] = [];
   let cursorPosition = -1;
   const cursorSongId = music.playingSongId ?? music.getPlaySongData?.id;
+
+  // Probe before building: bail on the no-op path without allocating entries.
+  const signature = playlistSignature(playlists, music.persistData.playSongMode, cursorSongId);
+  if (!force && signature === lastFingerprint) return;
 
   for (let index = 0; index < playlists.length; index++) {
     const song = playlists[index];
@@ -210,14 +267,7 @@ export const publishNativeManifest = (options: { force?: boolean } = {}): void =
   const cursorIdentity = cursorPosition >= 0 ? entries[cursorPosition].identity : null;
   const cursorIndex = cursorPosition >= 0 ? entries[cursorPosition].playlistIndex : 0;
 
-  const fingerprint = [
-    mode,
-    String(music.persistData.playSongMode === "random" ? randomSeed : 0),
-    cursorIdentity ? identityKey(cursorIdentity) : "?",
-    entries.map((e) => `${identityKey(e.identity)}@${e.playlistIndex}`).join(","),
-  ].join("|");
-  if (!options.force && fingerprint === lastFingerprint) return;
-  lastFingerprint = fingerprint;
+  lastFingerprint = signature;
 
   const manifest: NativePlaybackManifest = {
     schemaVersion: 1,

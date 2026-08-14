@@ -311,6 +311,31 @@ const applyNativeAutoMixCompletion = (
   const autoMixIndex = getAutoMixEngine().resolveActiveTransitionTargetIndex(currentIndex);
   let resolvedIndex = autoMixIndex >= 0 ? autoMixIndex : currentIndex;
 
+  // Reconcile against the backend-reported track *identity* first.
+  //
+  // When the native planner drives the advance it resolves the source URL in
+  // Rust, so `playback.musicId` (`local:<url>`) can never be found in the JS
+  // prefill registry below — which left the backend's index as the only,
+  // unverified key. Any drift between the manifest revision the backend is
+  // advancing on and the current store playlist (edits, random reshuffle)
+  // then surfaces as "displayed song is not the playing song", and it
+  // accumulates over a long session. Identity always wins over index.
+  const plannerAdvance = sound.takePlannerAdvance?.() ?? null;
+  if (plannerAdvance?.identity?.provider === "netease") {
+    const advancedSongId = Number(plannerAdvance.identity.id);
+    if (Number.isFinite(advancedSongId) && playlists[resolvedIndex]?.id !== advancedSongId) {
+      const indexByIdentity = playlists.findIndex((song) => song.id === advancedSongId);
+      if (indexByIdentity >= 0) {
+        if (IS_DEV) {
+          console.warn(
+            `[nativeAdvance] index ${resolvedIndex} disagreed with backend identity ${advancedSongId}; corrected to ${indexByIdentity}`,
+          );
+        }
+        resolvedIndex = indexByIdentity;
+      }
+    }
+  }
+
   // Cross-check the backend-reported track identity against the prefill
   // registry: if the playlist was edited while the backend advanced, the
   // index may point at a different song — identity wins over index.
