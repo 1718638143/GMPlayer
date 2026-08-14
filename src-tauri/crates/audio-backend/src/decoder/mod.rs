@@ -120,6 +120,16 @@ pub struct DecoderHandle {
 }
 
 impl DecoderHandle {
+    /// Interrupt a decode thread parked on a full sink queue. Producers park
+    /// for about the time the consumer needs to free a slot, which is far
+    /// longer than a control message should take to land, so every control
+    /// path pokes the thread instead of waiting for that park to expire.
+    fn wake(&self) {
+        if let Some(thread) = self.thread.as_ref() {
+            thread.thread().unpark();
+        }
+    }
+
     pub(crate) fn seek(&self, pos: Duration) -> AudioResult<DecoderSeekAck> {
         let (ack_tx, ack_rx) = oneshot::channel();
         let epoch = self
@@ -133,6 +143,7 @@ impl DecoderHandle {
                 ack: ack_tx,
             })
             .map_err(|_| AudioError::ThreadError("decoder control channel closed".into()))?;
+        self.wake();
 
         Ok(DecoderSeekAck { ack_rx })
     }
@@ -140,13 +151,16 @@ impl DecoderHandle {
     pub fn set_paused(&self, paused: bool) -> AudioResult<()> {
         self.control_tx
             .send(DecoderControl::SetPaused(paused))
-            .map_err(|_| AudioError::ThreadError("decoder control channel closed".into()))
+            .map_err(|_| AudioError::ThreadError("decoder control channel closed".into()))?;
+        self.wake();
+        Ok(())
     }
 
     pub fn stop(&self) {
         self.stop_flag.store(true, Ordering::Release);
         self.seek_epoch.fetch_add(1, Ordering::AcqRel);
         let _ = self.control_tx.send(DecoderControl::Stop);
+        self.wake();
     }
 }
 
@@ -195,6 +209,10 @@ const START_RAMP_FRAMES: usize = 2048;
 const SEEK_RAMP_FRAMES: usize = 512;
 const SEEK_CONTROL_CHECK_FRAMES: usize = 64;
 const MAX_DECODE_RETRIES: usize = 3;
+// A paused decoder resumes, seeks and stops through the control channel, which
+// wakes this wait immediately. The timeout is only a backstop for `stop_flag`
+// being set without a message, so it costs nothing to keep it low-frequency.
+const PAUSED_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 struct SeekableSymphoniaSource {
     format: Box<dyn FormatReader>,
@@ -807,7 +825,7 @@ impl<S: PlaybackSink> DecodeWorker<S> {
                 return false;
             }
 
-            match self.control_rx.recv_timeout(Duration::from_millis(10)) {
+            match self.control_rx.recv_timeout(PAUSED_POLL_INTERVAL) {
                 Ok(control) => {
                     if !self.apply_control(control) {
                         return false;

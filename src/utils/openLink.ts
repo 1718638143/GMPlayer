@@ -1,6 +1,6 @@
 // 外链统一出口。Tauri 下交给 opener 插件用系统默认浏览器打开，避免 release
 // 构建里 WebView 直接导航到外站后回不来；Web 下保持新标签页打开的既有行为。
-import { isTauri } from "@/utils/tauri/windowManager";
+import { isTauri } from "@/utils/tauri/core/runtime";
 
 /** 允许交给系统默认应用处理的协议，与 opener 能力里的 scope 保持一致 */
 const EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);

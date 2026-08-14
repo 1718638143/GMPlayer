@@ -410,6 +410,10 @@ impl AudioPlayer {
             self.playlist = self.playback_queue.playlist_cloned();
             self.sync_current_from_queue();
         }
+        // AutoMix advanced the track without going through the planner. Move
+        // the planner cursor with it, otherwise the next natural advance would
+        // plan from the track that just finished and replay the incoming one.
+        self.advance_planner_cursor_to_playlist_index(current_index);
         let incoming_duration = self.secondary_duration;
         self.secondary_duration = 0.0;
         self.native_crossfade_active = false;

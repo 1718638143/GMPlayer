@@ -335,13 +335,11 @@ const toDelPlayList = (data) => {
 // 判断收藏还是取消
 const isLikeOrDislike = (id) => {
   const listType = props.listType;
-  const playlists = user.getUserPlayLists.like;
-  const albums = user.getUserAlbumLists.list;
-  if (listType === "playlist" && playlists.length) {
-    return !playlists.some((item) => item.id === Number(id));
+  if (listType === "playlist") {
+    return !user.getLikedPlayListIds.has(Number(id));
   }
-  if (listType === "album" && albums.length) {
-    return !albums.some((item) => item.id === Number(id));
+  if (listType === "album") {
+    return !user.getUserAlbumIds.has(Number(id));
   }
   return true;
 };

@@ -645,7 +645,16 @@ impl WasmAudioBackend {
             | AudioThreadMessage::AutomixPrepareNext { .. }
             | AudioThreadMessage::AutomixCancel
             | AudioThreadMessage::AutomixForceStart { .. }
-            | AudioThreadMessage::AutomixCompleteNative { .. } => {
+            | AudioThreadMessage::AutomixCompleteNative { .. }
+            // Manifest/planner messages are Tauri-only: on the web the browser
+            // media host owns playback and JS is never frozen, so there is
+            // nothing for a native planner to drive. Accepting-and-ignoring
+            // keeps the protocol wire-compatible in both directions.
+            | AudioThreadMessage::SetNativeManifest { .. }
+            | AudioThreadMessage::ClearNativeManifest { .. }
+            | AudioThreadMessage::SetNativeResolverConfig { .. }
+            | AudioThreadMessage::SetNativePlannerEnabled { .. }
+            | AudioThreadMessage::SyncNativePlannerStatus => {
                 self.reply(Vec::new(), Vec::new())
             }
             AudioThreadMessage::SyncStatus => {

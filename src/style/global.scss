@@ -6,6 +6,38 @@
 }
 
 /* ═══════════════════════════════════════════════
+   Reduced motion — 全局兜底
+   ═══════════════════════════════════════════════
+   此前只有首页那几张卡片各自写了 @media (prefers-reduced-motion)，
+   而动效最重的播放器（GSAP 入场、motion-v 弹簧、抽屉、沉浸模式过渡）
+   一处都没有覆盖。逐组件补是补不完的（全项目 ~298 处 transition），
+   所以在这里统一兜底，组件内只保留「必须保命」的例外。
+
+   用 0.01ms 而不是 none：transitionend / animationend 仍会触发，
+   依赖动画完成回调的逻辑不会卡死。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 例外：不确定进度指示器本身就是「还在忙」的唯一信号，
+     停掉它等于给用户看一个卡死的界面。需要保命的动画加 .motion-essential。 */
+  .motion-essential,
+  .n-spin,
+  .n-spin *,
+  .n-base-loading,
+  .n-base-loading * {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════
    Transition Tokens — modern, snappy, shadcn/ui style
    ═══════════════════════════════════════════════ */
 :root {
@@ -45,6 +77,13 @@
   --blur-lg: 24px;
   --acrylic-blur: 18px;
   --app-shell-bg: #f2f2f4;
+  /* naive-ui 只在 NCard / NLayout 的 embedded 变体上定义 --n-color-embedded，
+     普通节点里读它会 var() 解析失败：对 color 这类继承属性，失败等于回落成继承值。
+     播放栏正是这么用的（选中/hover 时字形要以「底板色」从强调色色块里挖出来），
+     结果字形颜色回落成继承来的 --player-accent-color，和色块同色、糊成一块实心方块。
+     在这里补一个全局兜底：naive 组件自身仍会用内联变量覆盖它，互不影响。
+     跟随 --app-shell-bg，因此深浅色主题自动生效（Provider 在运行时改写它）。 */
+  --n-color-embedded: var(--app-shell-bg);
   --app-shell-rgb: 242, 242, 244;
   --layout-bg: var(--app-shell-bg);
   --content-panel-bg: #fff;

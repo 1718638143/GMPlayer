@@ -1,9 +1,9 @@
-import type { AudioThreadEventCallback, AudioThreadMessage } from "./audioBridge";
-import { isTauri } from "./audioBridge";
-import { createTauriAudioBackendTransport } from "./audioIpcTauri";
-import type { AudioBackendTransport } from "./audioIpcTypes";
+import type { AudioThreadEventCallback, AudioThreadMessage } from "../protocol";
+import { isTauri } from "../../core/runtime";
+import { createTauriAudioBackendTransport } from "./tauri";
+import type { AudioBackendTransport } from "./types";
 
-export type { AudioBackendTransport } from "./audioIpcTypes";
+export type { AudioBackendTransport } from "./types";
 
 declare const __GMPLAYER_TAURI_BUILD__: boolean;
 
@@ -70,7 +70,7 @@ class LazyWasmAudioBackendTransport implements AudioBackendTransport {
     }
     if (this._impl) return Promise.resolve(this._impl);
     if (!this._loadPromise) {
-      this._loadPromise = import("./audioIpcWasm").then((mod) => {
+      this._loadPromise = import("./wasm").then((mod) => {
         const impl = mod.createWasmAudioBackendTransport();
         if (this._shutdown) {
           impl.shutdown?.();

@@ -14,7 +14,7 @@ import {
   updateMediaProgress,
   type AudioFocusState,
   type MediaActionPayload,
-} from "@/utils/tauri/mediaNotification";
+} from "@/utils/tauri/media/notification";
 import {
   clearNowPlayingControls,
   initializeNowPlayingControls,
@@ -23,7 +23,7 @@ import {
   updateNowPlayingState,
   updateNowPlayingTimeline,
   type NowPlayingActionPayload,
-} from "@/utils/tauri/nowPlayingControls";
+} from "@/utils/tauri/media/nowPlaying";
 
 type PlaybackState = "playing" | "paused" | "buffering";
 type PlayMode = "normal" | "random" | "single";

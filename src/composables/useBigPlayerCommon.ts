@@ -36,12 +36,6 @@ export function useBigPlayerCommon(isMobile: Ref<boolean>) {
     return !!(lrc && lrc[0] && lrc.length > 4);
   });
 
-  // --- computedLowFreqVolume ---
-  const computedLowFreqVolume = computed(() => {
-    if (!setting.dynamicFlowSpeed) return 1.0;
-    return Math.round(music.lowFreqVolume * 100) / 100;
-  });
-
   // --- Lyric mouse/scroll ---
   const lrcMouseStatus = ref(false);
 
@@ -122,7 +116,6 @@ export function useBigPlayerCommon(isMobile: Ref<boolean>) {
     songName,
     remainingTime,
     hasLyrics,
-    computedLowFreqVolume,
     lrcMouseStatus,
     lyricsScroll,
     lrcAllLeave,

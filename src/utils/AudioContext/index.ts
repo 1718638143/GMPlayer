@@ -27,6 +27,17 @@ export {
   getNativeQueueRegistryEntry,
 } from "./NativeQueuePrefill";
 
+// Native manifest planner (Tauri unbounded background advance)
+export {
+  publishNativeManifest,
+  clearNativeManifest,
+  reseedRandomTraversal,
+} from "./NativeManifestPublisher";
+export {
+  syncNativeResolverConfig,
+  invalidateNativeResolverConfig,
+} from "./NativeResolverConfigSync";
+
 // Export types
 export type {
   SoundOptions,

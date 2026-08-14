@@ -1,4 +1,4 @@
-pub(in crate::output) fn default_output_id() -> Option<String> {
+pub(in crate::output) fn default_output_id(_device: &cpal::Device) -> Option<String> {
     use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
     use windows::Win32::Media::Audio::{
         eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,

@@ -249,10 +249,7 @@ const tabChange = (value: any) => {
 };
 
 const isLikeOrDislike = (id: string | string[]) => {
-  if (user.getUserArtistLists.list[0]) {
-    return !user.getUserArtistLists.list.some((item) => item.id === Number(id));
-  }
-  return true;
+  return !user.getUserArtistIds.has(Number(id));
 };
 
 const toLikeArtist = (data: { id: number; name: any }) => {

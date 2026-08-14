@@ -28,14 +28,17 @@ import { AudioContextManager } from "./AudioContextManager";
 import { getAutoMixEngine } from "./AutoMix";
 import { getAudioPreloader } from "./AudioPreloader";
 import { getNativeQueueRegistryEntry, prefillNativeQueue } from "./NativeQueuePrefill";
+import { publishNativeManifest } from "./NativeManifestPublisher";
+import { syncNativeResolverConfig } from "./NativeResolverConfigSync";
 import { clearSpectrumFrame, setSpectrumFrame } from "./SpectrumFrame";
+import { publishLowFreqVolume, resetLowFreqVolume } from "./lowFreqVolume";
 import type { ISound } from "./types";
 import {
   NativeRustSound,
   isAudioBackendRuntimeAvailable,
   isNativeAudioBackendAvailable,
-} from "../tauri/NativeRustSound";
-import { getAudioBackendTransport } from "../tauri/audioIpc";
+} from "../tauri/audio/nativeRustSound";
+import { getAudioBackendTransport } from "../tauri/audio/transport";
 import {
   buildNeteaseDesktopCookie,
   buildNeteaseDesktopUserAgent,
@@ -96,17 +99,13 @@ let spectrumAnimationId: number | null = null;
 let spectrumUpdateGeneration = 0;
 // 页面可见性状态
 let isPageVisible = true;
-let lastLowFreqStoreValue = 0;
-let lastLowFreqStoreAt = 0;
 // Background monitor interval ID (setInterval fallback when RAF is paused)
 let backgroundMonitorId: ReturnType<typeof setInterval> | null = null;
 let lastBackendSyncRequestAt = 0;
 let lastBackendStateAuditAt = 0;
 let lastPlaybackPresentationAt = 0;
 
-const LOW_FREQ_STORE_INTERVAL_MS = 33;
 const PLAYBACK_PRESENTATION_INTERVAL_MS = 1000 / 30;
-const LOW_FREQ_STORE_EPSILON = 0.005;
 const SCROBBLE_DELAY_MS = 3000;
 const SCROBBLE_DUPLICATE_GUARD_MS = 10000;
 
@@ -177,20 +176,6 @@ const getRelayPlayMode = (mode: ReturnType<typeof musicStore>["persistData"]["pl
   if (mode === "random") return "shuffle";
   if (mode === "single") return "single_loop";
   return "list_loop";
-};
-
-const updateLowFreqStore = (music: ReturnType<typeof musicStore>, value: number): void => {
-  const nextValue = Number.isFinite(value) ? value : 0;
-  const now = performance.now();
-  if (
-    now - lastLowFreqStoreAt < LOW_FREQ_STORE_INTERVAL_MS &&
-    Math.abs(nextValue - lastLowFreqStoreValue) < LOW_FREQ_STORE_EPSILON
-  ) {
-    return;
-  }
-  lastLowFreqStoreAt = now;
-  lastLowFreqStoreValue = nextValue;
-  music.lowFreqVolume = nextValue;
 };
 
 const requestNativeBackendSync = (): void => {
@@ -325,6 +310,31 @@ const applyNativeAutoMixCompletion = (
 
   const autoMixIndex = getAutoMixEngine().resolveActiveTransitionTargetIndex(currentIndex);
   let resolvedIndex = autoMixIndex >= 0 ? autoMixIndex : currentIndex;
+
+  // Reconcile against the backend-reported track *identity* first.
+  //
+  // When the native planner drives the advance it resolves the source URL in
+  // Rust, so `playback.musicId` (`local:<url>`) can never be found in the JS
+  // prefill registry below — which left the backend's index as the only,
+  // unverified key. Any drift between the manifest revision the backend is
+  // advancing on and the current store playlist (edits, random reshuffle)
+  // then surfaces as "displayed song is not the playing song", and it
+  // accumulates over a long session. Identity always wins over index.
+  const plannerAdvance = sound.takePlannerAdvance?.() ?? null;
+  if (plannerAdvance?.identity?.provider === "netease") {
+    const advancedSongId = Number(plannerAdvance.identity.id);
+    if (Number.isFinite(advancedSongId) && playlists[resolvedIndex]?.id !== advancedSongId) {
+      const indexByIdentity = playlists.findIndex((song) => song.id === advancedSongId);
+      if (indexByIdentity >= 0) {
+        if (IS_DEV) {
+          console.warn(
+            `[nativeAdvance] index ${resolvedIndex} disagreed with backend identity ${advancedSongId}; corrected to ${indexByIdentity}`,
+          );
+        }
+        resolvedIndex = indexByIdentity;
+      }
+    }
+  }
 
   // Cross-check the backend-reported track identity against the prefill
   // registry: if the playlist was edited while the backend advanced, the
@@ -533,6 +543,9 @@ const stopSpectrumUpdate = (disableNativeAnalysis = true): void => {
     spectrumAnimationId = null;
   }
   clearSpectrumFrame();
+  // Return the background to neutral instead of leaving it pinned at whatever
+  // transient the analysis loop happened to stop on.
+  resetLowFreqVolume();
   stopBackgroundMonitor();
   if (disableNativeAnalysis) {
     disableActiveNativeAnalysis();
@@ -546,7 +559,7 @@ const stopSpectrumUpdate = (disableNativeAnalysis = true): void => {
  * @param sound - 音频对象
  * @param music - pinia store
  */
-const startSpectrumUpdate = (sound: ISound, music: ReturnType<typeof musicStore>): void => {
+const startSpectrumUpdate = (sound: ISound): void => {
   stopSpectrumUpdate(false);
   const generation = spectrumUpdateGeneration;
 
@@ -599,7 +612,7 @@ const startSpectrumUpdate = (sound: ISound, music: ReturnType<typeof musicStore>
 
       if (needsLowFreq) {
         // 获取低频音量 (直接从 effectManager 计算，已内置平滑处理)
-        updateLowFreqStore(music, sound.getLowFrequencyVolume());
+        publishLowFreqVolume(sound.getLowFrequencyVolume());
       }
     }
 
@@ -616,7 +629,7 @@ export const ensureSpectrumUpdate = (): void => {
   const sound = SoundManager.getCurrentSound() ?? (window.$player as ISound | undefined);
   if (!sound) return;
 
-  startSpectrumUpdate(sound, musicStore());
+  startSpectrumUpdate(sound);
 };
 
 /**
@@ -856,6 +869,10 @@ const setupNativeSound = (
 
     setMediaSession(music);
     getAudioPreloader().preloadNext();
+    // The manifest planner owns background advancement; the bounded window is
+    // kept as a same-track safety net for when no manifest is published.
+    syncNativeResolverConfig();
+    publishNativeManifest();
     void prefillNativeQueue();
     music.preloadUpcomingSongs();
 
@@ -871,7 +888,7 @@ const setupNativeSound = (
     window.document.title = `${songName} - ${songArtist} - ${import.meta.env.VITE_SITE_TITLE}`;
 
     if (settings.musicFrequency || settings.dynamicFlowSpeed || settings.autoMixEnabled) {
-      startSpectrumUpdate(sound, music);
+      startSpectrumUpdate(sound);
     }
   }
 
@@ -1192,7 +1209,7 @@ export const createSound = (
 
       // 启动频谱更新 (also needed for AutoMix playback monitoring)
       if (settings.musicFrequency || settings.dynamicFlowSpeed || settings.autoMixEnabled) {
-        startSpectrumUpdate(sound, music);
+        startSpectrumUpdate(sound);
       }
     });
 
@@ -1455,7 +1472,7 @@ export const adoptIncomingSound = (incomingSound: ISound): void => {
 
   // Start spectrum update (also handles AutoMix monitorPlayback per frame)
   if (settings.musicFrequency || settings.dynamicFlowSpeed || settings.autoMixEnabled) {
-    startSpectrumUpdate(incomingSound, music);
+    startSpectrumUpdate(incomingSound);
   }
 
   // Update media session with current song info
@@ -1512,7 +1529,7 @@ export const adoptIncomingSound = (incomingSound: ISound): void => {
 
     // Restart spectrum + AutoMix monitoring
     if (settings.musicFrequency || settings.dynamicFlowSpeed || settings.autoMixEnabled) {
-      startSpectrumUpdate(incomingSound, music);
+      startSpectrumUpdate(incomingSound);
     }
   });
 
@@ -1583,7 +1600,7 @@ export const syncNativeAutoMixCurrentSound = async (sound: ISound): Promise<void
   startTimeUpdate(sound, music);
   syncNativeAnalysisState(sound, settings);
   if (settings.musicFrequency || settings.dynamicFlowSpeed || settings.autoMixEnabled) {
-    startSpectrumUpdate(sound, music);
+    startSpectrumUpdate(sound);
   }
 
   setMediaSession(music);
@@ -1599,6 +1616,8 @@ export const syncNativeAutoMixCurrentSound = async (sound: ISound): Promise<void
   }
 
   getAudioPreloader().preloadNext();
+  syncNativeResolverConfig();
+  publishNativeManifest();
   void prefillNativeQueue();
   music.preloadUpcomingSongs();
 };

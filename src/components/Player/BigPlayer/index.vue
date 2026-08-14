@@ -52,7 +52,6 @@
                 :coverImageUrl="coverImageUrl"
                 :albumImageUrl="setting.albumImageUrl"
                 :flowSpeed="setting.flowSpeed"
-                :lowFreqVolume="computedLowFreqVolume"
                 :staticMode="mobileBackgroundStatic"
               />
             </Motion>
@@ -111,13 +110,12 @@
           :coverImageUrl="coverImageUrl"
           :albumImageUrl="setting.albumImageUrl"
           :flowSpeed="setting.flowSpeed"
-          :lowFreqVolume="computedLowFreqVolume"
           :staticMode="!music.showBigPlayer"
         />
 
         <BigPlayerTopBar
           :showLyricSetting="setting.showLyricSetting"
-          @openSettings="LyricSettingRef.openLyricSetting()"
+          @openSettings="openLyricSetting()"
         />
 
         <DesktopPlayerLayout
@@ -148,7 +146,9 @@
       </template>
 
       <!-- 共用组件 -->
-      <LyricSetting ref="LyricSettingRef" />
+      <!-- 首次点开设置才拉取：它经 SettingsWorkspace 拖进整个 n-color-picker 分包，
+           而它只是个模态框，不参与大播放器的开合动画。 -->
+      <component :is="LyricSettingComponent" v-if="LyricSettingComponent" ref="LyricSettingRef" />
     </div>
   </Teleport>
 </template>
@@ -156,10 +156,9 @@
 <script setup lang="ts">
 import { musicStore, settingStore, siteStore } from "@/store";
 import Spectrum from "../Spectrum.vue";
-import LyricSetting from "@/components/DataModal/LyricSetting.vue";
 import { storeToRefs } from "pinia";
 import gsap from "gsap";
-import { onMounted, nextTick, watch, ref, computed, onBeforeUnmount } from "vue";
+import { onMounted, nextTick, watch, ref, computed, onBeforeUnmount, shallowRef } from "vue";
 import { Motion, animate, useMotionValue, type MotionValue } from "motion-v";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "../icons/icon-animations.css";
@@ -169,6 +168,7 @@ import { useResponsiveLayout } from "@/composables/useResponsiveLayout";
 import { usePwaThemeColor } from "@/composables/usePwaThemeColor";
 import { useBigPlayerCommon } from "@/composables/useBigPlayerCommon";
 import { useMobileCoverFrame } from "@/composables/useMobileCoverFrame";
+import { prefersReducedMotion } from "@/utils/reducedMotion";
 
 // 导入子组件
 import BigPlayerBackground from "./BigPlayerBackground.vue";
@@ -194,7 +194,6 @@ const {
   songName,
   remainingTime,
   hasLyrics,
-  computedLowFreqVolume,
   lrcMouseStatus,
   lyricsScroll,
   lrcAllLeave,
@@ -364,6 +363,17 @@ const forcePlaying = ref(true);
 const actualPlayingProp = computed(() => forcePlaying.value || music.getPlayState);
 const menuShow = ref(false);
 const LyricSettingRef = ref(null);
+// 显式 import() 而不是 defineAsyncComponent：这里要靠 ref 调命令式的
+// openLyricSetting()，需要一个「已解析且已挂载」的确定时机，
+// 而 defineAsyncComponent 解析完成的时刻是拿不到的。
+const LyricSettingComponent = shallowRef<any>(null);
+const openLyricSetting = async () => {
+  if (!LyricSettingComponent.value) {
+    LyricSettingComponent.value = (await import("@/components/DataModal/LyricSetting.vue")).default;
+    await nextTick();
+  }
+  (LyricSettingRef.value as any)?.openLyricSetting();
+};
 
 const clamp = (value: number, min = 0, max = 1) => Math.min(max, Math.max(min, value));
 const mix = (from: number, to: number, progress: number) => from + (to - from) * progress;
@@ -853,6 +863,9 @@ const desktopDragBlockSelector = [
   ".desktop-toggle-controls",
   ".desktop-queue-panel",
   ".desktop-comment-panel",
+  ".immersive-dock",
+  ".immersive-lyrics",
+  ".immersive-comment-stage",
   ".amll-close-action",
   ".control-thumb",
   ".controls",
@@ -1158,6 +1171,11 @@ const initMobileElements = () => {
 const animateTip = (isVisible: boolean) => {
   const tipEl = desktopLayoutRef.value?.tipRef;
   if (!tipEl) return;
+  // GSAP 不吃 CSS 的 prefers-reduced-motion 兜底，这里显式跳到终态
+  if (prefersReducedMotion()) {
+    gsap.set(tipEl, { opacity: isVisible ? 1 : 0, y: 0 });
+    return;
+  }
   if (isVisible) {
     gsap.fromTo(
       tipEl,
@@ -1182,6 +1200,13 @@ const animatePlayerIn = () => {
   if (!bigPlayerRef.value || isMobile.value) return;
   const leftEl = desktopLayoutRef.value?.leftContentRef;
   const rightEl = desktopLayoutRef.value?.rightContentRef;
+  // 同上：减弱动态效果时直接呈现终态，不做缩放淡入
+  if (prefersReducedMotion()) {
+    [leftEl, rightEl].forEach((el) => {
+      if (el) gsap.set(el, { clearProps: "opacity,transform,transition" });
+    });
+    return;
+  }
   if (leftEl) {
     gsap.set(leftEl, { transition: "none" });
     gsap.fromTo(

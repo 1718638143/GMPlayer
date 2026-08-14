@@ -13,7 +13,8 @@ import {
 } from "@vicons/material";
 import { settingStore, userStore } from "@/store";
 import { isTauri } from "@/utils/tauri";
-import { isWindowsTauri, windowManager } from "@/utils/tauri/windowManager";
+import { isWindowsTauri } from "@/utils/tauri/core/runtime";
+import { windowManager } from "@/utils/tauri/window/manager";
 import type { SettingsSection } from "./types";
 
 declare const $message: any;
@@ -199,6 +200,7 @@ export function useSettingsSections() {
           options: [
             { label: "setting.cover", value: "cover" },
             { label: "setting.record", value: "record" },
+            { label: "setting.immersive", value: "immersive" },
           ],
         },
         {

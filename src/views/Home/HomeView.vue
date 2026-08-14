@@ -141,6 +141,7 @@ import PaPersonalFm from "@/components/Personalized/PaPersonalFm.vue";
 import PaRadar from "@/components/Personalized/PaRadar.vue";
 import { musicStore, settingStore } from "@/store";
 import type { SongData } from "@/store/musicTypes";
+import { asRawEntry } from "@/utils/rawEntry";
 import { formatNumber, getSongTime } from "@/utils/timeTools";
 
 type StreamItemType = "playlist" | "album" | "artist";
@@ -164,25 +165,52 @@ const albumsData = ref<StreamItem[]>([]);
 const artistsData = ref<StreamItem[]>([]);
 const newSongsData = ref<SongData[]>([]);
 const isLoading = ref(true);
-let masonryObserver: ResizeObserver | null = null;
+// 与 .feed-grid 的 grid-auto-rows / row-gap 保持一致
+const MASONRY_ROW_HEIGHT = 8;
+const MASONRY_ROW_GAP = 8;
 
-const updateMasonrySpan = (element: HTMLElement) => {
-  const rowHeight = 8;
-  const rowGap = 8;
-  const span = Math.ceil((element.getBoundingClientRect().height + rowGap) / (rowHeight + rowGap));
-  element.style.gridRowEnd = `span ${span}`;
+let masonryObserver: ResizeObserver | null = null;
+const masonryPending = new Set<HTMLElement>();
+const masonryHeights: number[] = [];
+let masonryFrame = 0;
+
+// 先把所有卡片的高度读完再统一写 gridRowEnd。读写交替会让每次 write 使布局失效，
+// 于是下一次 getBoundingClientRect 触发一次同步重排——本页 33 张卡即 33 次重排。
+const flushMasonrySpans = () => {
+  masonryFrame = 0;
+  if (!masonryPending.size) return;
+  const elements = [...masonryPending];
+  masonryPending.clear();
+  masonryHeights.length = 0;
+  for (let i = 0; i < elements.length; i++) {
+    masonryHeights.push(elements[i].getBoundingClientRect().height);
+  }
+  for (let i = 0; i < elements.length; i++) {
+    const span = Math.ceil(
+      (masonryHeights[i] + MASONRY_ROW_GAP) / (MASONRY_ROW_HEIGHT + MASONRY_ROW_GAP),
+    );
+    const gridRowEnd = `span ${span}`;
+    // 值未变时不写，避免改动网格行高又反过来唤醒 ResizeObserver
+    if (elements[i].style.gridRowEnd !== gridRowEnd) elements[i].style.gridRowEnd = gridRowEnd;
+  }
+};
+
+const scheduleMasonrySpan = (element: HTMLElement) => {
+  masonryPending.add(element);
+  if (!masonryFrame) masonryFrame = requestAnimationFrame(flushMasonrySpans);
 };
 
 const vMasonryItem = {
   mounted(element: HTMLElement) {
     masonryObserver?.observe(element);
-    requestAnimationFrame(() => updateMasonrySpan(element));
+    scheduleMasonrySpan(element);
   },
   updated(element: HTMLElement) {
-    requestAnimationFrame(() => updateMasonrySpan(element));
+    scheduleMasonrySpan(element);
   },
   unmounted(element: HTMLElement) {
     masonryObserver?.unobserve(element);
+    masonryPending.delete(element);
   },
 };
 
@@ -269,7 +297,7 @@ const getStreamData = async () => {
     newSongsData.value = (newSongs.value.result ?? []).map((item: any, index: number) => {
       const rawSong = item.song ?? item;
       const album = rawSong.album ?? rawSong.al ?? {};
-      return {
+      return asRawEntry({
         id: item.id ?? rawSong.id,
         name: item.name ?? rawSong.name,
         artist: rawSong.artists ?? rawSong.ar ?? [],
@@ -282,7 +310,7 @@ const getStreamData = async () => {
         fee: rawSong.fee ?? 0,
         mv: rawSong.mvid ?? rawSong.mv ?? null,
         num: index + 1,
-      };
+      });
     });
   }
   isLoading.value = false;
@@ -322,7 +350,9 @@ const openStreamItem = (item: StreamItem) => {
 
 onMounted(() => {
   masonryObserver = new ResizeObserver((entries) => {
-    entries.forEach((entry) => updateMasonrySpan(entry.target as HTMLElement));
+    for (let i = 0; i < entries.length; i++) {
+      scheduleMasonrySpan(entries[i].target as HTMLElement);
+    }
   });
   if (typeof $setSiteTitle !== "undefined") $setSiteTitle(import.meta.env.VITE_SITE_TITLE);
   if (typeof $scrollToTop !== "undefined") $scrollToTop();
@@ -338,6 +368,9 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  if (masonryFrame) cancelAnimationFrame(masonryFrame);
+  masonryFrame = 0;
+  masonryPending.clear();
   masonryObserver?.disconnect();
   masonryObserver = null;
 });

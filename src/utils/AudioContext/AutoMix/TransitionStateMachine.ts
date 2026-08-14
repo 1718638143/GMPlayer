@@ -30,8 +30,10 @@ import {
   syncNativeAutoMixCurrentSound,
 } from "../PlayerFunctions";
 import { resolveSongUrl } from "../resolveSongUrl";
-import { getAudioBackendTransport } from "../../tauri/audioIpc";
-import { audioSendMsg, isTauri, type AudioThreadEvent } from "../../tauri/audioBridge";
+import { getAudioBackendTransport } from "../../tauri/audio/transport";
+import { audioSendMsg } from "../../tauri/audio/bridge";
+import { isTauri } from "../../tauri/core/runtime";
+import type { AudioThreadEvent } from "../../tauri/audio/protocol";
 import useMusicDataStore from "@/store/musicData";
 import useSettingDataStore from "@/store/settingData";
 import type { ISound } from "../types";

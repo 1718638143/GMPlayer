@@ -17,7 +17,7 @@
         <span class="tip updater-status">
           <n-icon
             class="status-icon"
-            :class="{ spin: statusVisual.spin }"
+            :class="{ spin: statusVisual.spin, 'motion-essential': statusVisual.spin }"
             :component="statusVisual.icon"
             :style="{ color: statusVisual.color }"
           />
@@ -335,6 +335,7 @@ const handleInstallUpdate = () => {
       font-size: 15px;
     }
 
+    // .motion-essential：reduced-motion 下仍要转，它是「正在检查/下载」的唯一提示
     .spin {
       animation: updater-spin 1s linear infinite;
     }

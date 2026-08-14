@@ -1,5 +1,5 @@
-import { isMobile, isMobileDevice } from "./mobile";
-import { isTauri } from "./windowManager";
+import { isTauri } from "../core/runtime";
+import { isMobile, isMobileDevice } from "../platform/mobile";
 
 export const MOBILE_TAURI_AUDIO_UI_DELAY_SECONDS = 0.45;
 

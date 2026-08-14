@@ -6,8 +6,8 @@ import axios, {
   AxiosHeaders,
 } from "axios";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { isMobileDevice } from "@/utils/tauri/mobile";
-import { isTauri } from "@/utils/tauri/windowManager";
+import { isMobileDevice } from "@/utils/tauri/platform/mobile";
+import { isTauri } from "@/utils/tauri/core/runtime";
 
 // Extend AxiosRequestConfig to include custom hiddenBar property
 export interface CustomAxiosRequestConfig extends AxiosRequestConfig {

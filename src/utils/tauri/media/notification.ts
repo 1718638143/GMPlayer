@@ -13,7 +13,7 @@
  */
 
 import { invoke, addPluginListener } from "@tauri-apps/api/core";
-import { isTauri } from "./windowManager";
+import { isTauri } from "../core/runtime";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Types (public interface — kept identical so call-sites need no changes)

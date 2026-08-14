@@ -379,6 +379,21 @@ const messages: Record<string, unknown> = {
   },
   // Player
   player: {
+    // 无障碍标签：图标按钮没有可见文字，读屏器只能靠 aria-label
+    controls: {
+      playMode: "Play mode",
+      previous: "Previous track",
+      next: "Next track",
+      play: "Play",
+      pause: "Pause",
+      comment: "Comments",
+      like: "Add to favorites",
+      unlike: "Remove from favorites",
+      more: "More options",
+      dislike: "Not interested",
+      volume: "Volume",
+      progress: "Playback progress",
+    },
     queue: {
       nowPlaying: "Now Playing",
       playingNext: "Playing Next",
@@ -499,9 +514,11 @@ const messages: Record<string, unknown> = {
     updateEta: "{time} left",
     releaseNotesTitle: "What's New",
     playerStyle: "Player Style",
-    playerStyleTip: "Style of the player's left-hand function area",
+    playerStyleTip:
+      "Layout of the desktop full-screen player. Immersive is a wide-screen layout; portrait mobile keeps the mobile player",
     cover: "Cover Mode",
     record: "Record Mode",
+    immersive: "Immersive Mode",
     backgroundImageShow: "Play Background Style",
     solid: "Solid",
     blur: "Blur",

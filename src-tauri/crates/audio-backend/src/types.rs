@@ -333,6 +333,25 @@ pub enum AudioThreadMessage {
         current_index: usize,
         position: f64,
     },
+    /// Replace the native playback manifest wholesale. `revision` must be
+    /// strictly newer than the stored one or the message is ignored.
+    #[serde(rename_all = "camelCase")]
+    SetNativeManifest { manifest: NativePlaybackManifest },
+    /// Drop the manifest and stop planner-driven advancement. Strong
+    /// semantics: cancels prefetch and clears the bounded queue.
+    #[serde(rename_all = "camelCase")]
+    ClearNativeManifest { revision: u64 },
+    /// Push resolver endpoints/credentials. Sent on login, logout, setting
+    /// changes, and at startup.
+    #[serde(rename_all = "camelCase")]
+    SetNativeResolverConfig { config: NativeResolverConfig },
+    /// Enable/disable planner-driven advancement without dropping the
+    /// manifest. Used to gate personal FM / listen-together.
+    #[serde(rename_all = "camelCase")]
+    SetNativePlannerEnabled { enabled: bool },
+    /// Request an authoritative `NativePlannerStatus` emission.
+    #[serde(rename_all = "camelCase")]
+    SyncNativePlannerStatus,
 }
 
 /// Events emitted from player → frontend (via Tauri event emit).
@@ -446,6 +465,27 @@ pub enum AudioThreadEvent {
     },
     #[serde(rename_all = "camelCase")]
     AutomixError { error: String, recoverable: bool },
+    /// Authoritative planner state. Carries `manifest_revision` so the
+    /// frontend can drop anything from a superseded generation.
+    #[serde(rename_all = "camelCase")]
+    NativePlannerStatusChanged { status: NativePlannerStatus },
+    /// The planner advanced to a new track on its own (JS was frozen or not
+    /// involved). Carries stable identity plus the UI index to adopt.
+    #[serde(rename_all = "camelCase")]
+    NativePlannerAdvanced {
+        manifest_revision: u64,
+        identity: TrackIdentity,
+        playlist_index: usize,
+        music_id: String,
+    },
+    /// Every candidate in this revision failed to resolve or play. Terminal
+    /// until a new manifest arrives; `reason` is already redacted.
+    #[serde(rename_all = "camelCase")]
+    NativePlannerExhausted {
+        manifest_revision: u64,
+        attempted: usize,
+        reason: String,
+    },
 }
 
 /// Wrapper message that carries a `callback_id` for request/response
@@ -502,6 +542,166 @@ impl<T> AudioThreadEventMessage<T> {
             seq: self.seq,
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Native manifest / planner protocol
+// ═══════════════════════════════════════════════════════════════════
+
+/// Stable track identity. Deliberately independent of any resolved CDN URL:
+/// URLs expire and get re-resolved, identity must not change when they do.
+///
+/// `key()` is the canonical string form used for all reconciliation between
+/// frontend and backend (and inside the manifest/planner).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "provider", rename_all = "camelCase")]
+pub enum TrackIdentity {
+    #[serde(rename_all = "camelCase")]
+    Netease { id: String },
+    #[serde(rename_all = "camelCase")]
+    Local { path: String },
+}
+
+impl TrackIdentity {
+    pub fn key(&self) -> String {
+        match self {
+            TrackIdentity::Netease { id } => format!("netease:{id}"),
+            TrackIdentity::Local { path } => format!("local-file:{path}"),
+        }
+    }
+
+    pub fn netease_id(&self) -> Option<&str> {
+        match self {
+            TrackIdentity::Netease { id } => Some(id),
+            _ => None,
+        }
+    }
+}
+
+/// One manifest row: stable identity plus the minimum the resolver and the
+/// media-session UI need. No CDN URL, no credentials.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeManifestEntry {
+    pub identity: TrackIdentity,
+    /// UI-facing playlist index. May be sparse or non-monotonic; never used
+    /// for advancement ordering (that is `NativePlaybackManifest::order`).
+    pub playlist_index: usize,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub artist: Option<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    /// Netease `fee` field, mirrored so the Rust resolver can apply the same
+    /// VIP pre-check the frontend does (`fee == 1 || fee == 4` → try UNM first).
+    #[serde(default)]
+    pub fee: Option<i64>,
+    /// Whether the track carries a `pc` field (cloud-uploaded). Cloud tracks
+    /// bypass the VIP pre-check, matching `resolveSongUrl`.
+    #[serde(default)]
+    pub has_pc: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NativePlaybackMode {
+    Normal,
+    Single,
+    Random,
+}
+
+impl Default for NativePlaybackMode {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
+/// Full lightweight playback manifest. `revision` is monotonic per frontend
+/// session; the backend rejects anything not strictly newer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePlaybackManifest {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
+    pub revision: u64,
+    pub entries: Vec<NativeManifestEntry>,
+    /// Explicit traversal order as indices into `entries`. Empty means natural
+    /// order. For random mode the frontend ships the whole shuffled
+    /// permutation so both sides agree without duplicating a PRNG.
+    #[serde(default)]
+    pub order: Vec<usize>,
+    #[serde(default)]
+    pub cursor_identity: Option<TrackIdentity>,
+    #[serde(default)]
+    pub cursor_index: usize,
+    #[serde(default)]
+    pub mode: NativePlaybackMode,
+    /// Whether running off the end of the traversal wraps.
+    #[serde(default = "default_true")]
+    pub repeat_list: bool,
+    /// Seed for backend-side reshuffles on random wrap.
+    #[serde(default)]
+    pub random_seed: Option<u64>,
+}
+
+fn default_schema_version() -> u32 {
+    1
+}
+
+/// Credentials/endpoints the Rust resolver needs to call the same deployed
+/// NeteaseCloudMusicApi the frontend uses. Pushed by the frontend; never
+/// persisted to disk and never logged.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeResolverConfig {
+    /// Base URL of the deployed NCM API (e.g. `https://ncm-api.example.com`).
+    #[serde(default)]
+    pub ncm_base_url: Option<String>,
+    /// UNM match endpoint base, when the user has one configured.
+    #[serde(default)]
+    pub unm_base_url: Option<String>,
+    #[serde(default)]
+    pub unm_enabled: bool,
+    /// NCM cookie (`MUSIC_U=...`). Sensitive: redacted in all logs.
+    #[serde(default)]
+    pub cookie: Option<String>,
+    /// Quality level string passed straight through to `/song/url/v1`.
+    #[serde(default)]
+    pub level: Option<String>,
+}
+
+impl NativeResolverConfig {
+    /// Whether the config can drive an NCM lookup at all.
+    pub fn is_usable(&self) -> bool {
+        self.ncm_base_url
+            .as_deref()
+            .is_some_and(|base| !base.trim().is_empty())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NativePlannerPlaybackState {
+    Stopped,
+    Loading,
+    Playing,
+    Paused,
+    Ended,
+}
+
+/// Authoritative planner state, used by the frontend to reconcile after a
+/// freeze/wake or a WebView restart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePlannerStatus {
+    pub manifest_revision: u64,
+    pub cursor_identity: Option<TrackIdentity>,
+    pub cursor_index: Option<usize>,
+    pub playback_state: NativePlannerPlaybackState,
+    pub prepared_identity: Option<TrackIdentity>,
+    pub failure_count: usize,
+    pub exhausted: bool,
 }
 
 /// Song data matching AMLL's `SongData` — used in SetPlaylist and SyncStatus.

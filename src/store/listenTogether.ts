@@ -8,6 +8,7 @@ import {
 } from "@/api/listenTogether";
 import { getMusicDetail } from "@/api/song";
 import { useMusicDataStore, useUserDataStore } from "@/store";
+import { asRawEntry } from "@/utils/rawEntry";
 import getLanguageData from "@/utils/getLanguageData";
 
 declare const $message: any;
@@ -374,17 +375,19 @@ const useListenTogetherStore = defineStore("listenTogether", {
           if (songIds.length > 0) {
             const detailRes = await getMusicDetail(songIds);
             if (detailRes.songs) {
-              const songs = detailRes.songs.map((song: any) => ({
-                id: song.id,
-                name: song.name,
-                artist: song.ar,
-                album: song.al,
-                alia: song.alia,
-                time: formatSongTime(song.dt),
-                fee: song.fee,
-                pc: song.pc || null,
-                mv: song.mv || null,
-              }));
+              const songs = detailRes.songs.map((song: any) =>
+                asRawEntry({
+                  id: song.id,
+                  name: song.name,
+                  artist: song.ar,
+                  album: song.al,
+                  alia: song.alia,
+                  time: formatSongTime(song.dt),
+                  fee: song.fee,
+                  pc: song.pc || null,
+                  mv: song.mv || null,
+                }),
+              );
               musicStore.setPlaylists(songs);
             }
           }
@@ -459,7 +462,7 @@ const useListenTogetherStore = defineStore("listenTogether", {
                 const detailRes = await getMusicDetail([data.currentSongId]);
                 if (detailRes.songs?.length) {
                   const song = detailRes.songs[0];
-                  const newSong = {
+                  const newSong = asRawEntry({
                     id: song.id,
                     name: song.name,
                     artist: song.ar,
@@ -469,7 +472,7 @@ const useListenTogetherStore = defineStore("listenTogether", {
                     fee: song.fee,
                     pc: song.pc || null,
                     mv: song.mv || null,
-                  };
+                  });
                   musicStore.persistData.playlists.push(newSong);
                   index = musicStore.persistData.playlists.length - 1;
                 }

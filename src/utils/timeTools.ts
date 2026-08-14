@@ -106,32 +106,32 @@ export const getCommentTime = (t: number): string => {
  * @param num 需要格式化的数字
  * @returns 格式化后的字符串或原样返回的数字
  */
+// Intl.NumberFormat 构造远比 format() 昂贵，而 locale 固定为运行环境默认值，
+// 因此惰性构造一次后复用（列表渲染时每项都会调用本函数）
+let compactFormatter: Intl.NumberFormat | null = null;
+const getCompactFormatter = (): Intl.NumberFormat => {
+  if (!compactFormatter) {
+    compactFormatter = new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    });
+  }
+  return compactFormatter;
+};
+
 export const formatNumber = (num: number | string): string | number => {
   const n = Number(num);
 
   // If the number is less than 10000 or zero, return as-is
   if (n === 0 || n < 10000) return n;
 
-  // Define formatter based on the current locale
-  const formatter = new Intl.NumberFormat(undefined, {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  });
+  const formatter = getCompactFormatter();
 
-  // Function to format the number into million or billion
-  const formatToMillionOrBillion = (number: number): string => {
-    const million = getLanguageData("million"); // Replace with your i18n function
-    const billion = getLanguageData("billion"); // Replace with your i18n function
-
-    if (number < 100000000) {
-      return formatter.format(number / 10000) + million;
-    } else {
-      return formatter.format(number / 100000000) + billion;
-    }
-  };
-
-  // Format based on the current locale
-  return formatToMillionOrBillion(n);
+  // 语言可在运行时切换，故单位文本仍每次读取
+  if (n < 100000000) {
+    return formatter.format(n / 10000) + getLanguageData("million");
+  }
+  return formatter.format(n / 100000000) + getLanguageData("billion");
 };
 
 const memo: Record<number, string> = {};

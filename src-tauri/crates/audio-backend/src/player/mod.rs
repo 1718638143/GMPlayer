@@ -15,6 +15,7 @@
 /// - `seek`            — seek validation/apply/defer
 /// - `output_runtime`  — device polling/health, hot-swap refresh, chain rebuilds
 /// - `automix_runtime` — native AutoMix deck preload/crossfade scheduling
+/// - `planner_runtime` — manifest/planner ownership, one-ahead prefetch, advance
 /// - `status`          — `EventEmitter` + position/seek/SyncStatus publishing
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -35,13 +36,18 @@ mod api;
 mod automix;
 mod automix_runtime;
 mod clock;
+pub mod manifest;
 mod messages;
 mod mixer;
 mod output_runtime;
+mod planner;
+mod planner_runtime;
 mod platform;
 mod playback;
 pub mod queue;
 mod seek;
+mod source_cache;
+pub mod source_resolver;
 mod status;
 
 #[allow(unused_imports)]
@@ -50,9 +56,12 @@ pub use api::{EventBuffer, Player, PlayerHandle, PlayerShared};
 use api::{join_thread_async, SeekRequest};
 use automix::AutoMixManager;
 use clock::PlayerClock;
+use manifest::ManifestStore;
 use mixer::{DeckId, DeckMixer};
 use output_runtime::OutputRefreshEvent;
+use planner::Planner;
 use queue::PlaybackQueue;
+use source_cache::{PrefetchResult, SourceCache};
 use status::EventEmitter;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -149,6 +158,19 @@ struct AudioPlayer {
     playlist_inited: bool,
     current_play_index: usize,
     current_song: Option<SongData>,
+
+    // Manifest-driven planning. The bounded `playback_queue` above stays the
+    // transport to the decoder; these own *what plays next* across the full
+    // list, so advancement no longer depends on a live JS runtime.
+    manifest: ManifestStore,
+    planner: Planner,
+    source_cache: SourceCache,
+    resolver_config: NativeResolverConfig,
+    /// Stable identity of the loaded track. Survives URL re-resolution, unlike
+    /// `current_song`'s `local:<url>` id.
+    current_identity: Option<TrackIdentity>,
+    prefetch_tx: mpsc::UnboundedSender<PrefetchResult>,
+    prefetch_rx: mpsc::UnboundedReceiver<PrefetchResult>,
 
     // Shared state snapshots
     current_audio_info: Arc<TokioRwLock<DisplayAudioInfo>>,
@@ -264,6 +286,7 @@ impl AudioPlayer {
         let (decoder_event_tx, decoder_event_rx) = mpsc::unbounded_channel();
         let (automix_prepare_tx, automix_prepare_rx) = mpsc::unbounded_channel();
         let (output_refresh_tx, output_refresh_rx) = mpsc::unbounded_channel();
+        let (prefetch_tx, prefetch_rx) = mpsc::unbounded_channel();
 
         Ok(Self {
             msg_receiver,
@@ -324,6 +347,13 @@ impl AudioPlayer {
             playlist_inited: false,
             current_play_index: 0,
             current_song: None,
+            manifest: ManifestStore::new(),
+            planner: Planner::new(),
+            source_cache: SourceCache::new(),
+            resolver_config: NativeResolverConfig::default(),
+            current_identity: None,
+            prefetch_tx,
+            prefetch_rx,
             current_audio_info,
             current_position,
             current_audio_quality,
@@ -381,6 +411,12 @@ impl AudioPlayer {
               result = self.automix_prepare_rx.recv() => {
                 if let Some(result) = result {
                   self.handle_automix_prepare_result(result).await;
+                }
+              }
+
+              result = self.prefetch_rx.recv() => {
+                if let Some(result) = result {
+                  self.handle_prefetch_result(result).await;
                 }
               }
 

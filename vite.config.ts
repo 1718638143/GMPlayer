@@ -260,10 +260,10 @@ export default defineConfig(({ mode }) => {
         ...(isTauri
           ? {
               "@player-helper/gmplayer-audio-backend": fileURLToPath(
-                new URL("./src/utils/tauri/stubs/disabledAudioBackendWasm.ts", import.meta.url),
+                new URL("./src/utils/tauri/audio/stubs/disabledAudioBackendWasm.ts", import.meta.url),
               ),
               "@player-helper/audio-analysis": fileURLToPath(
-                new URL("./src/utils/tauri/stubs/disabledAudioAnalysisWasm.ts", import.meta.url),
+                new URL("./src/utils/tauri/audio/stubs/disabledAudioAnalysisWasm.ts", import.meta.url),
               ),
             }
           : {}),

@@ -1,4 +1,4 @@
-import type { AudioThreadEventCallback, AudioThreadMessage } from "./audioBridge";
+import type { AudioThreadEventCallback, AudioThreadMessage } from "../protocol";
 
 export interface AudioBackendTransport {
   connect(): Promise<void>;

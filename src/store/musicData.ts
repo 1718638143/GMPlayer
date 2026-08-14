@@ -15,8 +15,14 @@ import {
   getAudioPreloader,
   SoundManager,
   cancelNativeQueuePrefill,
+  publishNativeManifest,
+  clearNativeManifest,
+  reseedRandomTraversal,
 } from "@/utils/AudioContext";
-import { NativeRustSound, isAudioBackendRuntimeAvailable } from "@/utils/tauri/NativeRustSound";
+import {
+  NativeRustSound,
+  isAudioBackendRuntimeAvailable,
+} from "@/utils/tauri/audio/nativeRustSound";
 import getLanguageData from "@/utils/getLanguageData";
 import type { SongLyric } from "@/utils/LyricsProcessor";
 import useMusicLyricStore from "./musicLyric";
@@ -29,6 +35,7 @@ import {
   type PlaySongTime,
   type SongData,
 } from "./musicTypes";
+import { asRawEntries, asRawEntry } from "@/utils/rawEntry";
 
 declare const $message: any;
 declare const $player: any;
@@ -55,7 +62,6 @@ interface MusicDataState {
   dailySongsDate: string;
   catList: Record<string, any>;
   highqualityCatList: any[];
-  lowFreqVolume: number;
   isLoadingSong: boolean;
   loadingStage: "idle" | "resolving" | "buffering" | "stalled" | "error";
   preloadedSongIds: Set<number>;
@@ -107,7 +113,6 @@ const useMusicDataStore = defineStore("musicData", {
       dailySongsDate: "",
       catList: {},
       highqualityCatList: [],
-      lowFreqVolume: 0,
       isLoadingSong: false,
       loadingStage: "idle",
       preloadedSongIds: new Set(),
@@ -151,9 +156,6 @@ const useMusicDataStore = defineStore("musicData", {
     },
     getPlaylists(state): SongData[] {
       return state.persistData.playlists;
-    },
-    getLowFreqVolume(state): number {
-      return state.lowFreqVolume;
     },
     getPlaySongMode(state): "normal" | "random" | "single" {
       return state.persistData.playSongMode;
@@ -292,6 +294,11 @@ const useMusicDataStore = defineStore("musicData", {
 
     setPersonalFmMode(value: boolean) {
       this.persistData.personalFmMode = value;
+      // 个人 FM 的下一首由服务端决定，后端 planner 无法预知：
+      // 进入时必须撤销 manifest，退出时重新发布，否则后台会按旧列表推进。
+      if (value) {
+        clearNativeManifest();
+      }
       if (value) {
         if (typeof $player !== "undefined") soundStop($player);
         if ((this.persistData.personalFmData as SongData)?.id) {
@@ -301,6 +308,8 @@ const useMusicDataStore = defineStore("musicData", {
         } else {
           this.setPersonalFmData();
         }
+      } else {
+        publishNativeManifest({ force: true });
       }
     },
 
@@ -310,7 +319,7 @@ const useMusicDataStore = defineStore("musicData", {
         getPersonalFm().then((res: any) => {
           if (res.data[0]) {
             const data = res.data[2] || res.data[0];
-            const fmData: SongData = {
+            const fmData: SongData = asRawEntry({
               id: data.id,
               name: data.name,
               artist: data.artists,
@@ -320,7 +329,7 @@ const useMusicDataStore = defineStore("musicData", {
               fee: data.fee,
               pc: data.pc ? data.pc : null,
               mv: data.mvid,
-            };
+            });
             if (songName && songName === fmData.name) {
               this.setFmDislike(fmData.id);
             } else {
@@ -432,7 +441,8 @@ const useMusicDataStore = defineStore("musicData", {
       const autoMix = getAutoMixEngine();
       if (autoMix.isHandoffActive()) autoMix.cancelCrossfade();
       cancelNativeQueuePrefill();
-      this.persistData.playlists = value.slice();
+      // asRawEntries 顺带完成 slice 的拷贝职责：新数组 + 逐项标记为 raw。
+      this.persistData.playlists = asRawEntries(value);
       this.persistData.playSongIndex = Math.min(
         Math.max(0, this.persistData.playSongIndex),
         Math.max(0, this.persistData.playlists.length - 1),
@@ -440,6 +450,9 @@ const useMusicDataStore = defineStore("musicData", {
       this.resetPlaySongTime();
       this.preloadedSongIds.clear();
       getAudioPreloader().cleanup();
+      // 整表替换视为一次新的随机序：重新播种，避免沿用旧列表的排列。
+      reseedRandomTraversal();
+      publishNativeManifest();
       // 切换播放列表时，清空旧歌词，等待新歌曲歌词加载
       this.resetSongLyricState();
     },
@@ -449,17 +462,19 @@ const useMusicDataStore = defineStore("musicData", {
         this.dailySongsData = [];
         this.dailySongsDate = date;
         value.forEach((v) => {
-          this.dailySongsData.push({
-            id: v.id,
-            name: v.name,
-            artist: v.ar,
-            album: v.al,
-            alia: v.alia,
-            time: getSongTime(v.dt),
-            fee: v.fee,
-            pc: v.pc ? v.pc : null,
-            mv: v.mv ? v.mv : null,
-          });
+          this.dailySongsData.push(
+            asRawEntry({
+              id: v.id,
+              name: v.name,
+              artist: v.ar,
+              album: v.al,
+              alia: v.alia,
+              time: getSongTime(v.dt),
+              fee: v.fee,
+              pc: v.pc ? v.pc : null,
+              mv: v.mv ? v.mv : null,
+            }),
+          );
         });
       }
     },
@@ -536,6 +551,12 @@ const useMusicDataStore = defineStore("musicData", {
       if (this.persistData.playSongMode !== "normal") {
         getAudioPreloader().cleanup();
       }
+      // 进入随机模式时重新播种，让本次随机与上一轮不同；
+      // 然后重发 manifest，把新的遍历顺序交给后端 planner。
+      if (this.persistData.playSongMode === "random") {
+        reseedRandomTraversal();
+      }
+      publishNativeManifest({ force: true });
       $message.info(getLanguageData(value!), {
         icon: () =>
           h(NIcon, null, {
@@ -691,9 +712,10 @@ const useMusicDataStore = defineStore("musicData", {
           this.checkpointPlaySongTime(true);
         }
       } else {
-        this.persistData.playlists.push(value);
+        this.persistData.playlists.push(asRawEntry(value));
         this.commitPlaySongIndex(this.persistData.playlists.length - 1);
       }
+      publishNativeManifest();
       if (play) this.setPlayState(true);
     },
 
@@ -701,8 +723,15 @@ const useMusicDataStore = defineStore("musicData", {
       cancelNativeQueuePrefill();
       this.persistData.playSongMode = "normal";
       const autoMix = getAutoMixEngine();
-      let insertAfterIndex = this.persistData.playSongIndex;
-      if (autoMix.isHandoffActive()) {
+      // 与 addSongToPlaylists 一致：以 playingSongId 为「正在发声的歌」的唯一判据。
+      // playSongIndex 可能因 setPlaylists 的 clamp 而落在别的歌上。
+      const activeSongId = this.playingSongId ?? this.getPlaySongData?.id;
+      const activeIndex = this.persistData.playlists.findIndex((o) => o.id === activeSongId);
+      let insertAfterIndex = activeIndex >= 0 ? activeIndex : this.persistData.playSongIndex;
+      // 只有真正在交叉淡入（incoming 已发声）时才锚定到 incoming 歌曲。
+      // 原生 AutoMix 在开播即 prepare，_activeTransition 会存在一整首歌，
+      // 此时发声的仍是 from 歌曲，用 toSongId 当锚点会整体后移一位。
+      if (autoMix.isCrossfading()) {
         const autoMixTargetIndex = autoMix.resolveActiveTransitionTargetIndex(insertAfterIndex);
         if (autoMixTargetIndex >= 0) {
           insertAfterIndex = autoMixTargetIndex;
@@ -711,8 +740,8 @@ const useMusicDataStore = defineStore("musicData", {
 
       const index = this.persistData.playlists.findIndex((o) => o.id === value.id);
       if (index !== -1) {
-        console.log(index);
-        if (index === this.persistData.playSongIndex || index === insertAfterIndex) return true;
+        // 已经是正在播放的歌、或已经排在下一位：无需移动。
+        if (value.id === activeSongId || index === insertAfterIndex) return true;
         if (index < this.persistData.playSongIndex) this.persistData.playSongIndex--;
         const arr = this.persistData.playlists.splice(index, 1)[0];
         if (index < insertAfterIndex) insertAfterIndex--;
@@ -721,9 +750,15 @@ const useMusicDataStore = defineStore("musicData", {
         if (insertIndex <= this.persistData.playSongIndex) this.persistData.playSongIndex++;
       } else {
         const insertIndex = insertAfterIndex + 1;
-        this.persistData.playlists.splice(insertIndex, 0, value);
+        this.persistData.playlists.splice(insertIndex, 0, asRawEntry(value));
         if (insertIndex <= this.persistData.playSongIndex) this.persistData.playSongIndex++;
       }
+      // 已 prepare 但尚未发声的过渡指向的是旧的「下一首」，插队后必须作废，
+      // 否则后端仍会切到原来那首。已在发声的 crossfade 不打断。
+      if (!autoMix.isCrossfading() && autoMix.isHandoffActive()) {
+        autoMix.cancelCrossfade();
+      }
+      publishNativeManifest();
       this.checkpointPlaySongTime(true);
       $message.success(value.name + " " + getLanguageData("addSongToNext"));
     },
@@ -752,6 +787,7 @@ const useMusicDataStore = defineStore("musicData", {
         this.persistData.playSongIndex = 0;
         if (typeof $player !== "undefined") soundStop($player);
       }
+      publishNativeManifest();
       if (removedCurrentSong) {
         // 索引现在指向后继歌曲（由 watcher 接手加载）；实际播放身份等待 load/adopt 提交。
         this.playingSongId = null;
@@ -766,6 +802,9 @@ const useMusicDataStore = defineStore("musicData", {
         autoMix.cancelCrossfade();
       }
       cancelNativeQueuePrefill();
+      // 强语义：清空必须在拆掉 sound 之前先撤销后端 manifest，
+      // 否则 planner 仍持有整表并会继续推进。
+      clearNativeManifest();
       getAudioPreloader().cleanup();
 
       const activePlayer = typeof window !== "undefined" ? window.$player : undefined;
@@ -820,7 +859,7 @@ const useMusicDataStore = defineStore("musicData", {
           this.persistData.playHistory.splice(index, 1);
         }
         if (this.persistData.playHistory.length > 100) this.persistData.playHistory.pop();
-        this.persistData.playHistory.unshift(data);
+        this.persistData.playHistory.unshift(asRawEntry(data));
       }
     },
 

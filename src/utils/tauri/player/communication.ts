@@ -1,7 +1,8 @@
 import { toRaw } from "vue";
 import { musicStore, settingStore, siteStore } from "@/store";
 import { getProcessedLyrics, type AMLLLine, type SongLyric } from "@/utils/LyricsProcessor";
-import { windowManager, isTauri } from "./windowManager";
+import { isTauri } from "../core/runtime";
+import { windowManager } from "../window/manager";
 import {
   PLAYER_COMMUNICATION_EVENTS,
   PLAYER_CONTENT_WINDOW_LABELS,
@@ -11,13 +12,13 @@ import {
   type PlayerSettingsPayload,
   type PlayerStatePayload,
   type PlayerTimePayload,
-} from "./playerCommunicationTypes";
+} from "./types";
 
 export {
   PLAYER_COMMUNICATION_EVENTS,
   PLAYER_CONTENT_WINDOW_LABELS,
   PLAYER_STATE_WINDOW_LABELS,
-} from "./playerCommunicationTypes";
+} from "./types";
 
 export type {
   PlayerContentWindowLabel,
@@ -27,7 +28,7 @@ export type {
   PlayerStatePayload,
   PlayerStateWindowLabel,
   PlayerTimePayload,
-} from "./playerCommunicationTypes";
+} from "./types";
 
 export interface MainPlayerCommunicationOptions {
   seek: (time: number) => void;

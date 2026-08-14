@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { isTauri } from "./windowManager";
+import { isTauri } from "../core/runtime";
 
 const PLUGIN = "now-playing-controls";
 const MEDIA_ACTION_EVENT = "now-playing-controls:media-action";

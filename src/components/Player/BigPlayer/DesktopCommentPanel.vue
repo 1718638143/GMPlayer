@@ -40,7 +40,11 @@
           :disabled="loading || loadingMore"
           @click="refreshComments"
         >
-          <n-icon :class="{ spinning: loading }" size="20" :component="RefreshRound" />
+          <n-icon
+            :class="{ spinning: loading, 'motion-essential': loading }"
+            size="20"
+            :component="RefreshRound"
+          />
         </button>
         <button
           class="icon-action"
@@ -684,6 +688,7 @@ onBeforeUnmount(cancelCommentsReady);
   }
 }
 
+// .motion-essential：reduced-motion 下仍要转，它是「正在刷新」的唯一提示
 .spinning {
   animation: comment-spin 0.8s linear infinite;
 }
