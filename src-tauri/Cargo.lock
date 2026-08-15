@@ -2023,6 +2023,7 @@ dependencies = [
  "tauri-plugin-taskbar-lyric",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "webview2-com",
  "windows 0.61.3",
  "windows-sys 0.59.0",
  "windows-version",

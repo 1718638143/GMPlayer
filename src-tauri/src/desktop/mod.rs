@@ -200,12 +200,15 @@ pub fn run() {
                     let _ = app_handle.save_window_state(WINDOW_STATE_FLAGS);
                     let _ = app_handle.emit("main-close-requested", ());
                 }
-                // Tray popup loses focus → hide it
+                // Tray popup loses focus → hide it. Routed through the window
+                // manager so the dismissed popup also drops to the low WebView2
+                // memory target instead of idling at full footprint.
                 ("tray-popup", WindowEvent::Focused(false)) => {
-                    if let Some(popup) = app_handle.get_webview_window("tray-popup") {
-                        let _ = popup.hide();
+                    if let Err(e) = wm::hide_window(app_handle, "tray-popup") {
+                        warn!("Failed to hide tray popup on focus loss: {}", e);
                     }
                 }
+                (_, WindowEvent::Destroyed) => wm::on_window_destroyed(app_handle, label),
                 _ => {}
             }
         }
