@@ -12,6 +12,9 @@ import { createI18n } from "vue-i18n";
 import piniaPluginPersistedstate from "pinia-plugin-persistedstate";
 
 import SlaveApp from "@/SlaveApp.vue";
+import { installTauriPinia, startTauriPiniaStores } from "@/utils/tauri/store/piniaPersistence";
+import useSettingDataStore, { repairSettingData } from "@/store/settingData";
+import useSiteDataStore, { repairSiteData } from "@/store/siteData";
 import { installExternalLinkInterceptor } from "@/utils/openLink";
 import "@/style/global.scss";
 import "@/style/animate.scss";
@@ -85,15 +88,41 @@ const router = createRouter({
 
 // ── Mount ─────────────────────────────────────────────────────────────
 
-const pinia = createPinia();
-pinia.use(piniaPluginPersistedstate);
+/**
+ * 与主窗口同一套分层持久化：localStorage 负责同步 hydrate，Tauri store 负责
+ * 落盘与跨窗口同步。设置窗口正是靠后者把改动实时推给主窗口的——在此之前只有
+ * playerBridge 里那 16 个歌词字段能回到主窗口。
+ */
+async function bootstrap() {
+  const pinia = createPinia();
+  pinia.use(piniaPluginPersistedstate);
+  await installTauriPinia(pinia);
 
-const app = createApp(SlaveApp);
-app.use(pinia);
-app.use(i18n);
-app.use(router);
+  // 顺序是硬约束：pinia.use() 要等 `app.use(pinia)` 之后才真正生效，在那之前
+  // 实例化 store，persistedstate 不会 hydrate、$tauri 也不会注入。
+  const app = createApp(SlaveApp);
+  app.use(pinia);
+  app.use(i18n);
+  app.use(router);
 
-// 外链统一出口：Tauri 交给系统浏览器，Web 走新标签页
-installExternalLinkInterceptor();
+  const settingData = useSettingDataStore(pinia);
+  const siteData = useSiteDataStore(pinia);
+  // 持久化层出问题不能让从窗口白屏——歌词浮层还得继续显示。
+  try {
+    await startTauriPiniaStores([
+      { store: settingData, onHydrated: () => repairSettingData(settingData) },
+      { store: siteData, onHydrated: () => repairSiteData(siteData) },
+    ]);
+  } catch (err) {
+    console.error("[slave] persistence bootstrap failed", err);
+  }
 
-app.mount("#app");
+  // 外链统一出口：Tauri 交给系统浏览器，Web 走新标签页
+  installExternalLinkInterceptor();
+
+  app.mount("#app");
+}
+
+bootstrap().catch((err) => {
+  console.error("[slave] bootstrap failed", err);
+});

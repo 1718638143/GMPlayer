@@ -111,7 +111,7 @@
 
 <script setup lang="ts">
 import { musicStore, userStore, settingStore, siteStore } from "@/store";
-import { suspendMusicPersist } from "@/store/musicPersistedData";
+import { resetPersistedStorage } from "@/store/resetPersistence";
 import { useRouter, useRoute } from "vue-router";
 import { getLoginState, refreshLogin } from "@/api/login";
 import { userDailySignin, userYunbeiSign } from "@/api/user";
@@ -286,14 +286,13 @@ const signIn = () => {
 };
 
 // 系统重置
-const cleanAll = () => {
+const cleanAll = async () => {
   if ($message) {
     $message.success(t("other.cleanAll"));
   } else {
     alert(t("other.cleanAll"));
   }
-  suspendMusicPersist();
-  localStorage.clear();
+  await resetPersistedStorage();
   document.location.reload();
 };
 

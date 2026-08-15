@@ -51,6 +51,15 @@ pub fn run() {
         .plugin(tauri_plugin_decorum::init())
         .plugin(gmplayer_now_playing_controls::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Pinia 持久化：settingData / siteData / userData 落盘并在主窗口与从
+        // 窗口之间同步。前端已经按 300ms debounce 推状态，这里再按 1s debounce
+        // 合并写文件，连续调节设置时不会反复落盘。
+        .plugin(
+            tauri_plugin_pinia::Builder::new()
+                .default_save_strategy(tauri_plugin_pinia::SaveStrategy::debounce_millis(1000))
+                .autosave(std::time::Duration::from_secs(300))
+                .build(),
+        )
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(WINDOW_STATE_FLAGS)

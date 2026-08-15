@@ -216,7 +216,7 @@
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { settingStore } from "@/store";
-import { suspendMusicPersist } from "@/store/musicPersistedData";
+import { resetPersistedStorage } from "@/store/resetPersistence";
 import themeColorData from "@/components/Provider/themeColor.json";
 import SettingsPanel from "./SettingsPanel.vue";
 import SettingsAppUpdate from "./SettingsAppUpdate.vue";
@@ -344,10 +344,9 @@ const changeThemeColor = (data: ThemeColorItem | null, reset = false) => {
 };
 
 const resetApp = () => {
-  const cleanAll = () => {
+  const cleanAll = async () => {
     $message?.success(t("other.cleanAll"));
-    suspendMusicPersist();
-    localStorage.clear();
+    await resetPersistedStorage();
     window.location.href = "/";
   };
 
@@ -359,9 +358,9 @@ const resetApp = () => {
     negativeText: t("general.dialog.cancel"),
     onPositiveClick: () => {
       if (typeof $cleanAll !== "undefined" && $cleanAll) {
-        $cleanAll();
+        void $cleanAll();
       } else {
-        cleanAll();
+        void cleanAll();
       }
     },
   });

@@ -53,6 +53,9 @@ log = "0.4"
 tauri-plugin-log = "2"
 tauri-plugin-media-session = "0.2.4"
 tauri-plugin-opener = "2.5.4"
+# Pinia store 持久化 + 跨窗口同步。版本必须与前端 @tauri-store/pinia 一致；
+# 5.x 需要 pinia 4，本项目还在 pinia 3。
+tauri-plugin-pinia = "4.2.1"
 
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 mimalloc = "*"

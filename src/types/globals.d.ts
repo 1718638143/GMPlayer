@@ -17,7 +17,7 @@ declare global {
     // App-level helpers (mounted in App.vue onMounted)
     $setSiteTitle: (title: string) => void;
     $scrollToTop: () => void;
-    $cleanAll: () => void;
+    $cleanAll: () => Promise<void>;
     $signIn: () => void;
     $getPlaySongData: (data: unknown) => void;
   }

@@ -31,6 +31,15 @@ pub fn run() {
         )
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
+        // Pinia 持久化：settingData / siteData / userData 落盘到应用数据目录。
+        // 移动端只有一个 webview，同步用不上，但落盘比 WebView 的 localStorage
+        // 更稳（后者会被系统清理）。
+        .plugin(
+            tauri_plugin_pinia::Builder::new()
+                .default_save_strategy(tauri_plugin_pinia::SaveStrategy::debounce_millis(1000))
+                .autosave(std::time::Duration::from_secs(300))
+                .build(),
+        )
         // Register the Android MediaNotification / MediaPlaybackService bridge.
         // On non-Android targets this is compiled as a no-op plugin so the same
         // binary can be built for iOS and simulator targets without any changes.

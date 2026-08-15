@@ -413,6 +413,15 @@ const useUserDataStore = defineStore("userData", {
       pick: ["userLogin", "cookie", "userData", "userOtherData"],
     },
   ],
+  // Tauri 层：cookie / 登录态落到真实文件，不再只躺在 WebView 的 localStorage
+  // 里；同时让设置窗、迷你播放器等从窗口共享同一份登录态。
+  // 拉取到的歌单 / 专辑列表是可重新请求的缓存，不进 Tauri store。
+  tauri: {
+    save: true,
+    sync: true,
+    filterKeys: ["userLogin", "cookie", "userData", "userOtherData"],
+    filterKeysStrategy: "pick",
+  },
 });
 
 if (import.meta.hot) {

@@ -8,32 +8,15 @@ import App from "@/App.vue";
 import router from "@/router/index";
 import { audioPreheat } from "@/utils/tauri/audio/bridge";
 import { isTauri } from "@/utils/tauri/core/runtime";
+import { installTauriPinia, startTauriPiniaStores } from "@/utils/tauri/store/piniaPersistence";
+import useSettingDataStore, { repairSettingData } from "@/store/settingData";
+import useSiteDataStore, { repairSiteData } from "@/store/siteData";
+import useUserDataStore from "@/store/userData";
 import { installExternalLinkInterceptor } from "@/utils/openLink";
 
 // 全局样式
 import "@/style/global.scss";
 import "@/style/animate.scss";
-
-const pinia = createPinia();
-pinia.use(piniaPluginPersistedstate);
-
-const app = createApp(App).use(pinia).use(router);
-
-// 国际化
-useI18n(app);
-
-useSafeAreaVars();
-
-// 外链统一出口：Tauri 交给系统浏览器，Web 走新标签页
-installExternalLinkInterceptor();
-
-app.mount("#app");
-
-if (isTauri()) {
-  void audioPreheat().catch((err) => {
-    console.warn("[main] native audio preheat failed", err);
-  });
-}
 
 if ("serviceWorker" in navigator) {
   let pwaMessage: { destroy: () => void } | null = null;
@@ -57,3 +40,58 @@ if ("serviceWorker" in navigator) {
     });
   });
 }
+
+/**
+ * 启动流程之所以是异步的：Tauri 的 store 后端要经过一次 IPC 才能拿到状态，
+ * 而 useI18n() 会同步读 settingData.language、主题也在挂载时就要读到位。
+ * 先把托管的 store hydrate 完再挂载，挂载后就不会有状态跳变。
+ * Web 环境下 installTauriPinia 直接返回 false，await 只多花一个微任务。
+ */
+async function bootstrap() {
+  const pinia = createPinia();
+  pinia.use(piniaPluginPersistedstate);
+  await installTauriPinia(pinia);
+
+  // 顺序是硬约束：pinia.use() 在 `app.use(pinia)` 之前只是把插件挂进
+  // toBeInstalled 队列（pinia 源码里 `use()` 判的是 `this._a`），要等安装到
+  // app 上才真正生效。在这之前实例化 store，persistedstate 不会 hydrate、
+  // $tauri 也不会注入——store 会静悄悄停在默认值上。
+  const app = createApp(App).use(pinia).use(router);
+
+  // 持久化层出任何问题都不能让页面白屏。走到这里 persistedstate 已经
+  // hydrate 完了（localStorage 那份是同步的），Tauri 层失败只是少了落盘和
+  // 跨窗口同步——Web 上更是整段都不该存在。
+  try {
+    const settingData = useSettingDataStore(pinia);
+    const siteData = useSiteDataStore(pinia);
+    await startTauriPiniaStores([
+      // onHydrated 是版本修复步：Tauri store 文件可能是旧版本写的，而它的
+      // $patch 发生在 persistedstate 的 afterHydrate 之后。回调幂等。
+      { store: settingData, onHydrated: () => repairSettingData(settingData) },
+      { store: siteData, onHydrated: () => repairSiteData(siteData) },
+      useUserDataStore(pinia),
+    ]);
+  } catch (err) {
+    console.error("[main] persistence bootstrap failed", err);
+  }
+
+  // 国际化（读 settingData.language，必须在 hydrate 之后）
+  useI18n(app);
+
+  useSafeAreaVars();
+
+  // 外链统一出口：Tauri 交给系统浏览器，Web 走新标签页
+  installExternalLinkInterceptor();
+
+  app.mount("#app");
+
+  if (isTauri()) {
+    void audioPreheat().catch((err) => {
+      console.warn("[main] native audio preheat failed", err);
+    });
+  }
+}
+
+bootstrap().catch((err) => {
+  console.error("[main] bootstrap failed", err);
+});

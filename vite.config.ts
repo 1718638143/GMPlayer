@@ -350,6 +350,20 @@ export default defineConfig(({ mode }) => {
                 test: /src[\\/]utils[\\/]LyricsProcessor[\\/]/,
                 priority: 10,
               },
+              // Tauri store 持久化层。只有 Tauri 里才会动态 import，必须自成
+              // 一块——落进 vendor 的话会跟着首屏 chunk 一起预加载，Web 端白下。
+              // @tauri-apps/api 要用更高优先级先抢走：它同时被首屏代码静态
+              // import，跟着 @tauri-store 走的话会把整块拽成 eager chunk。
+              {
+                name: "tauri-api",
+                test: /node_modules[\\/]@tauri-apps[\\/]/,
+                priority: 16,
+              },
+              {
+                name: "tauri-store",
+                test: /node_modules[\\/]@tauri-store[\\/]/,
+                priority: 15,
+              },
               // Remaining vendor
               {
                 name: "vendor",

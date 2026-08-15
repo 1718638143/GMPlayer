@@ -50,6 +50,7 @@
     "updater:default",
     "opener:allow-open-url",
     "opener:allow-default-urls",
-    "now-playing-controls:default"
+    "now-playing-controls:default",
+    "pinia:default"
   ]
 }

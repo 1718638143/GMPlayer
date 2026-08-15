@@ -14,6 +14,7 @@
  *   player/    cross-window player state sync
  *   media/     OS media controls (Android notification, desktop now-playing)
  *   platform/  device/platform capability helpers
+ *   store/     Tauri-backed Pinia persistence (layered on top of localStorage)
  */
 
 // ── core ────────────────────────────────────────────────────────────
@@ -26,6 +27,15 @@ export type { WindowConfig, WindowLabel, WindowState } from "./window/types";
 
 // ── platform ────────────────────────────────────────────────────────
 export { isMobile, isMobileDevice } from "./platform/mobile";
+
+// ── store ───────────────────────────────────────────────────────────
+export {
+  installTauriPinia,
+  isTauriPiniaInstalled,
+  startTauriPiniaStores,
+  destroyTauriPiniaStores,
+  type TauriPersistedStore,
+} from "./store/piniaPersistence";
 
 // Screen orientation control (Android)
 export {
