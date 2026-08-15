@@ -49,9 +49,12 @@ const TIME_DRIFT_THRESHOLD_S = 0.25;
 /** Burst guard for unforced sends. */
 const TIME_MIN_GAP_MS = 30;
 // How often to reconcile the open-content-window set against the real window
-// list (to detect closes). Only runs while at least one content window is
-// believed open; opens are tracked immediately via the `slaveReady` handshake.
-const CONTENT_WINDOW_RECONCILE_MS = 2000;
+// list. Pure safety net for a dropped event: opens arrive through the
+// `slaveReady` handshake, and both ways a window can leave the set — hide and
+// destroy — are pushed by Rust as `managed-window-visibility`. Only runs while
+// at least one content window is believed open, and each pass costs one
+// `get_window_state` invoke per content label, so it stays slow on purpose.
+const CONTENT_WINDOW_RECONCILE_MS = 15_000;
 const noop = () => {};
 
 interface TimeBroadcastAnchor {
@@ -75,12 +78,12 @@ let cachedLyricSettingsKey = "";
 let cachedLyricPayload: PlayerLyricPayload | null = null;
 
 // Which content windows (mini-player / desktop-lyrics / taskbar-lyric) are
-// currently open AND visible. The 20fps time broadcast is skipped entirely
-// when this is empty, and only fans out to the labels that are actually open —
-// so the common case (no lyric/mini windows) costs nothing, and one open
-// window costs one `emitTo` instead of three. Hidden-but-alive windows count
-// as closed: Rust announces show/hide via `managed-window-visibility`, and a
-// re-shown window is healed with a full-state push.
+// currently open AND visible. The time broadcast is skipped entirely when this
+// is empty, and only fans out to the labels that are actually open — so the
+// common case (no lyric/mini windows) costs nothing, and one open window costs
+// one `emitTo` instead of three. Hidden-but-alive windows count as closed: Rust
+// announces show/hide/destroy via `managed-window-visibility`, and a re-shown
+// window is healed with a full-state push.
 const openContentWindows = new Set<string>();
 let openContentLabelsCache: string[] | null = null;
 let contentWindowReconcileTimer: ReturnType<typeof setInterval> | null = null;

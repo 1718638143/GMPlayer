@@ -67,7 +67,11 @@ Frontend seek/autoresume must preserve the optimistic position anchor. After a s
 
 Lyrics support LRC, YRC, and TTML. Fetching and normalization live under `src/utils/LyricsProcessor/`, while AMLL rendering powers rich lyric views.
 
-Tauri windows are created through Rust-side presets in `src-tauri/src/desktop/window/config.rs` and `manager.rs`. On Windows, WebView2 windows that share a profile must use consistent additional browser args.
+Tauri windows are created through Rust-side presets in `src-tauri/src/desktop/window/config.rs` and `manager.rs`. On Windows, WebView2 windows that share a profile must use consistent additional browser args, so `DEFAULT_ADDITIONAL_WINDOW_ARGS` is the only definition and every window (including the taskbar lyric plugin's) gets it verbatim. That string replaces wry's defaults rather than extending them — keep `msWebOOUI,msPdfOOUI,msSmartScreenProtection` in the merged `--disable-features` list, and keep hardware acceleration on: the player animates continuously, so `--disable-gpu` is not an acceptable memory trade here.
+
+Hidden windows keep a full WebView2 renderer, and hiding a Tauri window only hides the host HWND. `src-tauri/src/desktop/window/webview_memory.rs` drives the engine-side policy from the show/hide paths: every managed window drops to `MemoryUsageTargetLevel::Low` while hidden and returns to `Normal` before it is shown again, the windows in `IDLE_WHEN_HIDDEN` additionally get `IsVisible = false`, and the ones in `SUSPEND_WHEN_HIDDEN` (a subset — `TrySuspend` fails unless the controller is already invisible) are frozen outright. The main window must stay out of both lists — it is the playback master and keeps driving the AutoMix monitor and slave broadcasts from rAF and timers while the app sits in the tray. Always call `webview_memory::on_shown` *before* `show()` so the wake request precedes the show on the shared event loop queue. Pre-created hidden windows are put to sleep from `on_page_load`, never at build time: navigation auto-resumes a suspended webview, so suspending mid-load would both fail and leave a half-rendered page for the first open.
+
+Do not add a periodic reload to "refresh" a long-running window. `main` owns playback, the native audio bridge and the AutoMix state machine, and every other window is already destroyed on close; the only permanently resident page is the tray popup, which is suspended instead.
 
 ## AutoMix & Crossfade Rules
 

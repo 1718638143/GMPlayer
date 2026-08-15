@@ -67,6 +67,10 @@ gmplayer-now-playing-controls = { package = "tauri-plugin-now-playing-controls",
 [target.'cfg(windows)'.dependencies]
 gmplayer-taskbar-lyric = { package = "tauri-plugin-taskbar-lyric", path = "crates/taskbar-lyric" }
 windows-version = "0.1.7"
+# WebView2 COM interfaces for the idle-memory policy (MemoryUsageTargetLevel /
+# controller visibility). Must stay on the version wry resolves, or the
+# controller handed out by `PlatformWebview` is a different type.
+webview2-com = "0.38"
 windows = { version = "0.61.3", features = [
   "Win32_Foundation",
   "Win32_Graphics_Direct2D",
